@@ -21,16 +21,22 @@ export function BloodRequestForm() {
   const urgencyLevels = [
     { value: 'low', label: 'Low Priority', color: 'text-green-600', bgColor: 'bg-green-50 border-green-200' },
     { value: 'medium', label: 'Medium Priority', color: 'text-yellow-600', bgColor: 'bg-yellow-50 border-yellow-200' },
-    { value: 'high', label: 'High Priority - Emergency', color: 'text-red-600', bgColor: 'bg-red-50 border-red-200' }
+    { value: 'high', label: 'High Priority - Emergency', color: 'text-red-600', bgColor: 'bg-red-50 border-red-200' },
+    { value: 'pregnancy', label: 'Pregnancy', color: 'text-pink-600', bgColor: 'bg-pink-50 border-pink-200' }
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // Validate date
+      // Validate date: allow any time today and all future dates, but not past times today
       const requiredDate = new Date(formData.requiredBy);
-      if (requiredDate < new Date()) {
-        toast.error('Required date must be in the future');
+      const now = new Date();
+      // Remove seconds and milliseconds for comparison
+      requiredDate.setSeconds(0, 0);
+      now.setSeconds(0, 0);
+      // If requiredDate is before now, it's invalid
+      if (requiredDate < now) {
+        toast.error('Required date must be now or in the future');
         return;
       }
 
@@ -120,6 +126,16 @@ export function BloodRequestForm() {
                 <input
                   type="datetime-local"
                   value={formData.requiredBy}
+                  min={(() => {
+                    const now = new Date();
+                    const pad = (n: number) => n.toString().padStart(2, '0');
+                    const yyyy = now.getFullYear();
+                    const mm = pad(now.getMonth() + 1);
+                    const dd = pad(now.getDate());
+                    const hh = pad(now.getHours());
+                    const min = pad(now.getMinutes());
+                    return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+                  })()}
                   onChange={(e) => setFormData({ ...formData, requiredBy: e.target.value })}
                   className="w-full pl-10 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   required
@@ -165,6 +181,7 @@ export function BloodRequestForm() {
                       {level.value === 'high' && <AlertTriangle className="h-4 w-4" />}
                       {level.value === 'medium' && <Clock className="h-4 w-4" />}
                       {level.value === 'low' && <Heart className="h-4 w-4" />}
+                      {level.value === 'pregnancy' && <span role="img" aria-label="Pregnancy" className="h-4 w-4">🤰</span>}
                       <span className="font-medium">{level.label}</span>
                     </div>
                   </div>

@@ -31,13 +31,20 @@ export function SearchDonors() {
     }
   };
 
-  const bloodGroups = ['A +', 'A -', 'B +', 'B -', 'AB +', 'AB -', 'O +', 'O -', 'NK'];
+  const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'NK'];
 
   const filteredDonors = donors.filter(donor => {
     const matchesSearch = donor.name.toLowerCase().includes(searchValue.toLowerCase()) ||
                          donor.email.toLowerCase().includes(searchValue.toLowerCase()) ||
                          donor.rollNo?.toLowerCase().includes(searchValue.toLowerCase());
     const matchesBloodGroup = !filters.bloodGroup || donor.bloodGroup === filters.bloodGroup;
+    
+    // Debug logging
+    if (filters.bloodGroup) {
+      console.log('Filtering for blood group:', filters.bloodGroup);
+      console.log('Donor blood group:', donor.bloodGroup);
+      console.log('Match:', matchesBloodGroup);
+    }
     
     return matchesSearch && matchesBloodGroup;
   });
@@ -70,15 +77,6 @@ export function SearchDonors() {
           <span>Registered: {new Date(donor.createdAt).toLocaleDateString()}</span>
         </div>
       </div>
-
-      <div className="flex space-x-2">
-        <button className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors">
-          Contact
-        </button>
-        <button className="flex-1 bg-green-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-green-700 transition-colors">
-          Request
-        </button>
-      </div>
     </div>
   );
 
@@ -100,16 +98,6 @@ export function SearchDonors() {
               <span>•</span>
               <span>{donor.phone}</span>
             </div>
-          </div>
-        </div>
-        <div className="flex items-center space-x-3">
-          <div className="flex space-x-2">
-            <button className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
-              Contact
-            </button>
-            <button className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors">
-              Request
-            </button>
           </div>
         </div>
       </div>

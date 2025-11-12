@@ -85,72 +85,79 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
         setRecentRequests([]);
       }
 
-      // Fetch responding donors
+      // Fetch available donors (use the same endpoint as Available Donors page)
       try {
-        const donorResponsesResponse = await axios.get('http://localhost:5000/donor-response/locations');
-        if (donorResponsesResponse.data.success) {
-          const responses = donorResponsesResponse.data.responses || [];
-          const formattedDonors: RespondingDonor[] = responses.slice(0, 5).map((donor: any, index: number) => ({
-            id: index + 1,
-            name: donor.name || 'Unknown Donor',
-            bloodGroup: donor.bloodGroup || 'Unknown',
-            distance: donor.location ? '2.5 km' : 'N/A', // Mock distance calculation
-            phone: donor.phone || 'N/A',
-            status: donor.status || 'responded'
-          }));
+        const availableDonorsResponse = await axios.get('http://localhost:5000/donor-response/available-donors');
+        if (availableDonorsResponse.data.success) {
+          const donors = availableDonorsResponse.data.donors || [];
+          
+          // Calculate distance for each donor (simplified calculation)
+          const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+            const R = 6371; // Earth's radius in kilometers
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+          };
+          
+          // Hospital location (Charusat coordinates)
+          const hospitalLat = 22.6013;
+          const hospitalLng = 72.8327;
+          
+          // Filter to only donors who have responded (have location data) and show top 5
+          const respondedDonors = donors
+            .filter((donor: any) => donor.hasLocationData && donor.location)
+            .slice(0, 5);
+          
+          const formattedDonors: RespondingDonor[] = respondedDonors.map((donor: any, index: number) => {
+            const distance = donor.location ? 
+              calculateDistance(hospitalLat, hospitalLng, donor.location.lat, donor.location.lng) : 
+              null;
+            
+            return {
+              id: index + 1,
+              name: donor.name || 'Unknown Donor',
+              bloodGroup: donor.bloodGroup || 'Unknown',
+              distance: distance ? `${distance.toFixed(1)} km` : 'N/A',
+              phone: donor.phone || 'N/A',
+              status: donor.status || 'responded'
+            };
+          });
+          
           setRespondingDonors(formattedDonors);
           
-          // Update available donors count
+          // Update available donors count to all donors (not just responded ones)
           setStats(prevStats => ({
             ...prevStats,
-            availableDonors: responses.length
+            availableDonors: donors.length
           }));
         }
       } catch (donorErr) {
-        console.log('Failed to fetch responding donors, using fallback data');
-        setRespondingDonors([
-          { id: 1, name: 'John Doe', bloodGroup: 'O-', distance: '2.3 km', phone: '+1 234-567-8901', status: 'confirmed' },
-          { id: 2, name: 'Jane Smith', bloodGroup: 'A+', distance: '1.8 km', phone: '+1 234-567-8902', status: 'responded' },
-          { id: 3, name: 'Mike Johnson', bloodGroup: 'B+', distance: '3.1 km', phone: '+1 234-567-8903', status: 'contacted' },
-        ]);
+        console.error('Failed to fetch available donors:', donorErr);
+        // Only use fallback if we really can't get data
+        setRespondingDonors([]);
+        setStats(prevStats => ({
+          ...prevStats,
+          availableDonors: 0
+        }));
       }
 
     } catch (err: any) {
       console.error('Error fetching dashboard data:', err);
       setError(err.response?.data?.message || 'Failed to fetch dashboard data');
       
-      // Fallback to mock data for development
+      // Set empty data instead of mock data
       setStats({
-        activeRequests: 3,
-        availableDonors: 15,
-        completedThisMonth: 8
+        activeRequests: 0,
+        availableDonors: 0,
+        completedThisMonth: 0
       });
       
-      setRecentRequests([
-        {
-          _id: 'mock1',
-          bloodGroup: 'O-',
-          units: 2,
-          urgency: 'high',
-          status: 'active',
-          createdAt: new Date().toISOString()
-        },
-        {
-          _id: 'mock2',
-          bloodGroup: 'A+',
-          units: 1,
-          urgency: 'medium',
-          status: 'fulfilled',
-          createdAt: new Date(Date.now() - 86400000).toISOString()
-        }
-      ]);
-      
-      // Fallback responding donors
-      setRespondingDonors([
-        { id: 1, name: 'John Doe', bloodGroup: 'O-', distance: '2.3 km', phone: '+1 234-567-8901', status: 'confirmed' },
-        { id: 2, name: 'Jane Smith', bloodGroup: 'A+', distance: '1.8 km', phone: '+1 234-567-8902', status: 'responded' },
-        { id: 3, name: 'Mike Johnson', bloodGroup: 'B+', distance: '3.1 km', phone: '+1 234-567-8903', status: 'contacted' },
-      ]);
+      setRecentRequests([]);
+      setRespondingDonors([]);
     } finally {
       setLoading(false);
     }

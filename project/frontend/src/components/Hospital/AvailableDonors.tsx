@@ -26,13 +26,17 @@ interface BloodRequest {
 
 export function AvailableDonors() {
   const [searchValue, setSearchValue] = useState('');
-  const [selectedRequest, setSelectedRequest] = useState<string>('all'); // Only blood request filter
+  const [selectedRequest, setSelectedRequest] = useState<string>('all'); // Blood request filter
+  const [selectedBloodGroup, setSelectedBloodGroup] = useState<string>('all'); // Direct blood group filter
   const [donors, setDonors] = useState<DonorWithLocation[]>([]);
   const [bloodRequests, setBloodRequests] = useState<BloodRequest[]>([]);
   const [completedDonations, setCompletedDonations] = useState<Set<string>>(new Set()); // Track completed donations by donorId
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Available blood groups for filtering
+  const bloodGroups = ['All Blood Groups', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
   // Blood group compatibility function
   const getCompatibleBloodGroups = (requestedBloodGroup: string): string[] => {
@@ -223,11 +227,16 @@ export function AvailableDonors() {
     const matchesSearch = donor.name.toLowerCase().includes(searchValue.toLowerCase()) ||
                          donor.rollNo?.toLowerCase().includes(searchValue.toLowerCase()) ||
                          donor.phone.toLowerCase().includes(searchValue.toLowerCase());
+    
+    // Blood group filter
+    const matchesBloodGroup = selectedBloodGroup === 'all' || selectedBloodGroup === 'All Blood Groups' || 
+                             donor.bloodGroup === selectedBloodGroup;
+    
     // Response filtering based on selected request
     let shouldShowDonor = true;
     if (selectedRequest === 'all') {
-      // "All Donors" - show only donors who have shared location
-      shouldShowDonor = donor.hasLocationData === true;
+      // "All Donors" - show all donors (both responded and not responded)
+      shouldShowDonor = true;
     } else {
       // Specific blood request selected - ONLY show donors who have responded
       const hasResponded = donor.hasLocationData === true;
@@ -242,8 +251,9 @@ export function AvailableDonors() {
       // For specific requests: must have responded AND be blood compatible
       shouldShowDonor = hasResponded && matchesBloodRequest;
     }
-    // Must match search AND meet the response/request criteria
-    return matchesSearch && shouldShowDonor;
+    
+    // Must match search AND blood group AND meet the response/request criteria
+    return matchesSearch && matchesBloodGroup && shouldShowDonor;
   });
 
   return (
@@ -300,9 +310,9 @@ export function AvailableDonors() {
         </div>
       )}
 
-      {/* Search and Blood Request Filter - SIMPLIFIED */}
+      {/* Search and Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Search Box */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -315,7 +325,20 @@ export function AvailableDonors() {
             />
           </div>
           
-          {/* Blood Request Filter - ONLY FILTER */}
+          {/* Blood Group Filter */}
+          <select
+            value={selectedBloodGroup}
+            onChange={(e) => setSelectedBloodGroup(e.target.value)}
+            className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
+          >
+            {bloodGroups.map((bloodGroup) => (
+              <option key={bloodGroup} value={bloodGroup === 'All Blood Groups' ? 'all' : bloodGroup}>
+                {bloodGroup}
+              </option>
+            ))}
+          </select>
+          
+          {/* Blood Request Filter */}
           <select
             value={selectedRequest}
             onChange={(e) => setSelectedRequest(e.target.value)}
@@ -323,7 +346,7 @@ export function AvailableDonors() {
           >
             {bloodRequests.map((request) => (
               <option key={request._id} value={request._id}>
-                {request._id === 'all' ? 'All Donors' : `${request.bloodGroup} - ${new Date(request.createdAt).toLocaleDateString()}`}
+                {request._id === 'all' ? 'All Donors' : `${request.bloodGroup} Request - ${new Date(request.createdAt).toLocaleDateString()}`}
               </option>
             ))}
           </select>

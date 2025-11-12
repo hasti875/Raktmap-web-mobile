@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { MapPin, Phone, Mail, X } from 'lucide-react';
 import axiosInstance from '../../utils/axios';
 import { Donor } from '../../types';
@@ -25,8 +25,12 @@ export function DonorsList({ isOpen, onClose }: DonorsListProps) {
     setLoading(true);
     setError(null);
     try {
-      const response = await axiosInstance.get('/donors');
-      setDonors(response.data);
+      const response = await axiosInstance.get('/donor-response/available-donors');
+      if (response.data.success) {
+        setDonors(response.data.donors);
+      } else {
+        throw new Error(response.data.message || 'Failed to fetch donors');
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch donors');
     } finally {
@@ -39,10 +43,17 @@ export function DonorsList({ isOpen, onClose }: DonorsListProps) {
                          donor.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          donor.rollNo?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesBloodGroup = !bloodGroupFilter || donor.bloodGroup === bloodGroupFilter;
-    return matchesSearch && matchesBloodGroup;
+    
+    // Only show donors who have been contacted (have location data or have responded)
+    // This excludes "Not Contacted" donors from the dashboard modal
+    const hasBeenContacted = (donor as any).hasLocationData === true || 
+                            (donor as any).status === 'responded' || 
+                            (donor as any).detailedStatus === 'location_shared';
+    
+    return matchesSearch && matchesBloodGroup && hasBeenContacted;
   });
 
-  const bloodGroups = ['A +', 'A -', 'B +', 'B -', 'AB +', 'AB -', 'O +', 'O -', 'NK'];
+  const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
   if (!isOpen) return null;
 

@@ -1,18 +1,48 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const DonationHistory = require('../models/DonationHistory');
 const BloodRequest = require('../models/BloodRequest');
 
 // Get all donation history records (for frontend display)
 router.get('/donation-history', async (req, res) => {
   try {
-    const donationHistory = await DonationHistory.find({}).sort({ acceptedAt: -1 });
+    console.log('Fetching donation history...');
+    
+    const donationHistory = await DonationHistory.find({})
+      .sort({ completedAt: -1, acceptedAt: -1, createdAt: -1 })
+      .limit(100); // Limit to last 100 donations
+    
+    console.log(`Found ${donationHistory.length} donation records`);
+    
+    const formattedHistory = donationHistory.map(donation => ({
+      _id: donation._id,
+      donorId: donation.donorId,
+      bloodRequestId: donation.bloodRequestId,
+      hospitalId: donation.hospitalId,
+      donorName: donation.donorName,
+      donorPhone: donation.donorPhone,
+      donorBloodGroup: donation.donorBloodGroup,
+      bloodGroup: donation.donorBloodGroup,
+      quantity: 1, // Default quantity
+      urgency: 'medium', // Default urgency
+      status: donation.status,
+      acceptedAt: donation.acceptedAt,
+      completedAt: donation.completedAt,
+      address: donation.address,
+      notes: donation.notes,
+      location: donation.location,
+      createdAt: donation.createdAt
+    }));
+    
     res.json({
       success: true,
-      donationHistory
+      donationHistory: formattedHistory,
+      total: formattedHistory.length
     });
   } catch (error) {
     console.error('Error fetching all donation history:', error);
+    console.error('Error details:', error);
     res.status(500).json({
       success: false,
       message: 'Server error while fetching all donation history',
@@ -112,11 +142,15 @@ router.post('/accept-donor', async (req, res) => {
 router.get('/donation-history/:hospitalId', async (req, res) => {
   try {
     const { hospitalId } = req.params;
+    console.log(`Fetching donation history for hospital: ${hospitalId}`);
     
+    // Since hospitalId field doesn't exist in model, get all accepted donations
+    // In a real scenario, you'd need to link donations to hospitals through blood requests
     const donationHistory = await DonationHistory.find({
-      hospitalId,
       status: 'accepted'
-    }).populate('bloodRequestId').sort({ acceptedAt: -1 });
+    }).sort({ acceptedAt: -1 });
+
+    console.log(`Found ${donationHistory.length} accepted donations`);
 
     res.json({
       success: true,
@@ -187,10 +221,15 @@ router.post('/mark-donation-completed', async (req, res) => {
       
       donation = await existingDonation.save();
     } else {
+      // Get hospital ID from blood request
+      const bloodRequest = await BloodRequest.findById(requestId);
+      const hospitalId = bloodRequest ? bloodRequest.hospitalId : null;
+      
       // Create new completed donation record
       donation = new DonationHistory({
         donorId,
         bloodRequestId: requestId,
+        hospitalId,
         donorName,
         donorPhone,
         donorBloodGroup,
@@ -203,6 +242,33 @@ router.post('/mark-donation-completed', async (req, res) => {
       });
 
       await donation.save();
+    }
+
+    // Remove from locations collection after marking as donated
+    try {
+      const deleteResult = await mongoose.connection.db.collection('locations').deleteOne({
+        donorId: donorId,
+        requestId: requestId
+      });
+      
+      if (deleteResult.deletedCount > 0) {
+        console.log(`✅ Removed donor ${donorId} location from locations collection`);
+      } else {
+        // Try alternative deletion by phone number if donorId doesn't match
+        const altDeleteResult = await mongoose.connection.db.collection('locations').deleteOne({
+          mobileNumber: donorPhone,
+          requestId: requestId
+        });
+        
+        if (altDeleteResult.deletedCount > 0) {
+          console.log(`✅ Removed donor location by phone ${donorPhone} from locations collection`);
+        } else {
+          console.log(`⚠️ No location found to remove for donor ${donorId} in request ${requestId}`);
+        }
+      }
+    } catch (locationError) {
+      console.error('Error removing from locations collection:', locationError);
+      // Continue with the flow even if location removal fails
     }
 
     // Update the blood request status to 'fulfilled'

@@ -8,6 +8,7 @@ import { AdminDashboard } from '../Admin/AdminDashboard';
 import { HospitalManagement } from '../Admin/HospitalManagement';
 import { DonorManagement } from '../Admin/DonorManagement';
 import { BloodRequestManagement } from '../Admin/BloodRequestManagement';
+import { MarkDonation } from '../Admin/MarkDonation';
 import { HospitalDashboard } from '../Hospital/HospitalDashboard';
 import { BloodRequestForm } from '../Hospital/BloodRequestForm';
 import { AvailableDonors } from '../Hospital/AvailableDonors';
@@ -19,7 +20,6 @@ import { HospitalSettings } from '../Hospital/HospitalSettings';
 import { Analytics } from '../Admin/Analytics';
 import { LiveDonorMap } from '../Admin/LiveDonorMap';
 import { Notifications as AdminNotifications } from '../Admin/Notifications';
-import { AccessControl } from '../Admin/AccessControl';
 import { AuditLogs } from '../Admin/AuditLogs';
 import { AdminSettings } from '../Admin/AdminSettings';
 
@@ -39,14 +39,14 @@ const MainLayout: React.FC = () => {
           return <DonorManagement />;
         case 'requests':
           return <BloodRequestManagement />;
+        case 'mark-donation':
+          return <MarkDonation />;
         case 'map':
           return <LiveDonorMap />;
         case 'analytics':
           return <Analytics />;
         case 'notifications':
           return <AdminNotifications />;
-        case 'access-control':
-          return <AccessControl />;
         case 'audit':
           return <AuditLogs />;
         case 'settings':
@@ -62,6 +62,8 @@ const MainLayout: React.FC = () => {
           return <BloodRequestForm />;
         case 'donors':
           return <AvailableDonors />;
+        case 'mark-donation':
+          return <MarkDonation />;
         case 'map':
           return <LiveMap />;
         case 'history':
@@ -78,6 +80,7 @@ const MainLayout: React.FC = () => {
       }
     }
   };
+
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">

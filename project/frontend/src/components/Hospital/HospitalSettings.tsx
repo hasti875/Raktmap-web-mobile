@@ -1,31 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, MapPin, Phone, Key, Bell, Save, User, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, Phone, Key, Save, User, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 
-interface HospitalData {
-  _id: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  emergencyContact: string;
-  radius: number;
-  status: string;
-}
-
 export function HospitalSettings() {
-  const [hospitalData, setHospitalData] = useState<HospitalData | null>(null);
   const [settings, setSettings] = useState({
     hospitalName: '',
     email: '',
     phone: '',
     address: '',
-    emergencyContact: '',
-    defaultRadius: 10,
-    smsNotifications: true,
-    emailNotifications: true,
-    emergencyAlerts: true,
-    nightTimeRestrictions: false
+    emergencyContact: ''
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,18 +33,12 @@ export function HospitalSettings() {
       const response = await axios.get('/hospital/profile');
       if (response.data.success) {
         const hospital = response.data.hospital;
-        setHospitalData(hospital);
         setSettings({
           hospitalName: hospital.name,
           email: hospital.email,
           phone: hospital.phone,
           address: hospital.address,
-          emergencyContact: hospital.emergencyContact,
-          defaultRadius: hospital.radius,
-          smsNotifications: true,
-          emailNotifications: true,
-          emergencyAlerts: true,
-          nightTimeRestrictions: false
+          emergencyContact: hospital.emergencyContact
         });
       }
     } catch (err: any) {
@@ -91,15 +68,12 @@ export function HospitalSettings() {
         email: settings.email,
         phone: settings.phone,
         address: settings.address,
-        emergencyContact: settings.emergencyContact,
-        radius: settings.defaultRadius
+        emergencyContact: settings.emergencyContact
       };
 
       const response = await axios.put('/hospital/profile', updateData);
       if (response.data.success) {
         setSuccessMessage('Settings updated successfully!');
-        // Update local hospital data
-        setHospitalData(response.data.hospital);
         
         // Clear success message after 3 seconds
         setTimeout(() => setSuccessMessage(null), 3000);
@@ -112,21 +86,63 @@ export function HospitalSettings() {
     }
   };
 
-  const handlePasswordUpdate = () => {
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      alert('Passwords do not match');
-      return;
+  const handlePasswordUpdate = async () => {
+    try {
+      // Validation
+      if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
+        setError('Please fill in all password fields');
+        return;
+      }
+
+      if (passwordData.newPassword !== passwordData.confirmPassword) {
+        setError('New passwords do not match');
+        return;
+      }
+
+      if (passwordData.newPassword.length < 6) {
+        setError('New password must be at least 6 characters long');
+        return;
+      }
+
+      setSaving(true);
+      setError(null);
+      setSuccessMessage(null);
+
+      const response = await axios.put('/hospital/update-password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      });
+
+      if (response.data.success) {
+        setSuccessMessage('Password updated successfully!');
+        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        
+        // Clear success message after 3 seconds
+        setTimeout(() => setSuccessMessage(null), 3000);
+      }
+    } catch (err: any) {
+      console.error('Error updating password:', err);
+      setError(err.response?.data?.message || 'Failed to update password');
+    } finally {
+      setSaving(false);
     }
-    console.log('Updating password');
-    // Handle password update
-    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <Settings className="h-6 w-6 text-red-600" />
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Hospital Settings</h2>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <Settings className="h-6 w-6 text-red-600" />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Hospital Settings</h2>
+        </div>
+        <button
+          onClick={handleSaveSettings}
+          disabled={saving}
+          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 text-sm"
+        >
+          <Save className="h-4 w-4" />
+          <span>{saving ? 'Saving...' : 'Save Changes'}</span>
+        </button>
       </div>
 
       {/* Loading State */}
@@ -162,9 +178,9 @@ export function HospitalSettings() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Hospital Information */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center space-x-2 mb-4">
-            <User className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Hospital Information</h3>
+          <div className="flex items-center space-x-2 mb-6 pb-2 border-b border-gray-200 dark:border-gray-700">
+            <User className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Hospital Information</h3>
           </div>
           
           <div className="space-y-4">
@@ -218,11 +234,11 @@ export function HospitalSettings() {
           </div>
         </div>
 
-        {/* Emergency & Search Settings */}
+        {/* Emergency Settings */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center space-x-2 mb-4">
-            <Phone className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Emergency & Search Settings</h3>
+          <div className="flex items-center space-x-2 mb-6 pb-2 border-b border-gray-200 dark:border-gray-700">
+            <Phone className="h-6 w-6 text-green-600 dark:text-green-400" />
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Emergency Settings</h3>
           </div>
           
           <div className="space-y-4">
@@ -238,146 +254,64 @@ export function HospitalSettings() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Default Search Radius (km)
-              </label>
-              <div className="flex items-center space-x-4">
-                <input
-                  type="range"
-                  min="1"
-                  max="50"
-                  value={settings.defaultRadius}
-                  onChange={(e) => handleSettingsChange('defaultRadius', parseInt(e.target.value))}
-                  className="flex-1"
-                />
-                <span className="text-sm font-medium text-gray-900 dark:text-white w-12">
-                  {settings.defaultRadius}km
-                </span>
+            {/* Password Change Section */}
+            <div className="pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center space-x-2 mb-4">
+                <Key className="h-5 w-5 text-red-600 dark:text-red-400" />
+                <h4 className="text-lg font-bold text-gray-900 dark:text-white">Change Password</h4>
               </div>
-            </div>
-
-            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-              <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Notification Preferences</h4>
+              
               <div className="space-y-3">
-                <label className="flex items-center">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Current Password
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={settings.smsNotifications}
-                    onChange={(e) => handleSettingsChange('smsNotifications', e.target.checked)}
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    type="password"
+                    value={passwordData.currentPassword}
+                    onChange={(e) => handlePasswordChange('currentPassword', e.target.value)}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
-                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">SMS Notifications</span>
-                </label>
-                
-                <label className="flex items-center">
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    New Password
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={settings.emailNotifications}
-                    onChange={(e) => handleSettingsChange('emailNotifications', e.target.checked)}
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    type="password"
+                    value={passwordData.newPassword}
+                    onChange={(e) => handlePasswordChange('newPassword', e.target.value)}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
-                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Email Notifications</span>
-                </label>
-                
-                <label className="flex items-center">
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Confirm New Password
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={settings.emergencyAlerts}
-                    onChange={(e) => handleSettingsChange('emergencyAlerts', e.target.checked)}
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    type="password"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => handlePasswordChange('confirmPassword', e.target.value)}
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
-                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Emergency Alerts</span>
-                </label>
-                
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={settings.nightTimeRestrictions}
-                    onChange={(e) => handleSettingsChange('nightTimeRestrictions', e.target.checked)}
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Night Time Restrictions (10 PM - 6 AM)</span>
-                </label>
+                </div>
+
+                <button
+                  onClick={handlePasswordUpdate}
+                  disabled={saving}
+                  className="w-full bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                >
+                  <Key className="h-4 w-4" />
+                  <span>{saving ? 'Updating...' : 'Update Password'}</span>
+                </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Password Change */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center space-x-2 mb-4">
-            <Key className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Change Password</h3>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Current Password
-              </label>
-              <input
-                type="password"
-                value={passwordData.currentPassword}
-                onChange={(e) => handlePasswordChange('currentPassword', e.target.value)}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              />
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                New Password
-              </label>
-              <input
-                type="password"
-                value={passwordData.newPassword}
-                onChange={(e) => handlePasswordChange('newPassword', e.target.value)}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Confirm New Password
-              </label>
-              <input
-                type="password"
-                value={passwordData.confirmPassword}
-                onChange={(e) => handlePasswordChange('confirmPassword', e.target.value)}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              />
-            </div>
-
-            <button
-              onClick={handlePasswordUpdate}
-              className="w-full bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center space-x-2"
-            >
-              <Key className="h-4 w-4" />
-              <span>Update Password</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Save Settings */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center space-x-2 mb-4">
-            <Save className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Save Changes</h3>
-          </div>
-          
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Make sure to save your changes before leaving this page.
-          </p>
-          
-          <button
-            onClick={handleSaveSettings}
-            disabled={saving}
-            className="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
-          >
-            <Save className="h-4 w-4" />
-            <span>{saving ? 'Saving...' : 'Save All Settings'}</span>
-          </button>
-        </div>
       </div>
       )}
     </div>

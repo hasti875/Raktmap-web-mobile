@@ -17,6 +17,13 @@ const donorSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  uniqueId: {
+    type: String,
+    unique: true,
+    sparse: true, // Allows null values while maintaining uniqueness
+    trim: true,
+    uppercase: true
+  },
   bloodGroup: {
     type: String,
     required: true,

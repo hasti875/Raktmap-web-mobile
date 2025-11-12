@@ -1,4 +1,5 @@
-const express = require('express');
+
+express = require('express');
 const Donor = require('../models/Donor');
 const Notification = require('../models/Notification');
 const { broadcastNotification } = require('../utils/notificationStream');
@@ -26,6 +27,33 @@ router.get('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error fetching donor:', error);
     res.status(500).json({ message: 'Failed to fetch donor' });
+  }
+});
+
+// GET /donors/verify/:uniqueId - Verify a donor by uniqueId
+router.get('/verify/:uniqueId', async (req, res) => {
+  try {
+    const donor = await Donor.findOne({ uniqueId: req.params.uniqueId }, { password: 0 });
+    if (!donor) {
+      return res.status(404).json({ 
+        success: false, 
+        message: `Donor with ID "${req.params.uniqueId}" not found in system` 
+      });
+    }
+    res.json({ 
+      success: true, 
+      donor: {
+        uniqueId: donor.uniqueId,
+        name: donor.name,
+        email: donor.email,
+        phone: donor.phone,
+        bloodGroup: donor.bloodGroup,
+        rollNumber: donor.rollNumber
+      }
+    });
+  } catch (error) {
+    console.error('Error verifying donor:', error);
+    res.status(500).json({ success: false, message: 'Failed to verify donor' });
   }
 });
 

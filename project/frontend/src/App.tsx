@@ -5,6 +5,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import LoginForm from "./components/Shared/LoginForm";
 import RegisterForm from "./components/Shared/RegisterForm";
+import ForgotPassword from "./components/Shared/ForgotPassword";
 import MainLayout from "./components/Layout/MainLayout";
 import Loader from "./components/Shared/Loader";
 import { useAuth } from "./contexts/AuthContext";
@@ -118,6 +119,23 @@ const App: React.FC = () => {
               />
             ) : (
               <RegisterForm />
+            )
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            user ? (
+              <Navigate
+                to={
+                  user.role === "admin"
+                    ? "/admin-dashboard"
+                    : "/hospital-dashboard"
+                }
+                replace
+              />
+            ) : (
+              <ForgotPassword />
             )
           }
         />

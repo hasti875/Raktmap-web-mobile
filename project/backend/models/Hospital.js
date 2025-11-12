@@ -9,7 +9,8 @@ const HospitalSchema = new mongoose.Schema({
   emergencyContact: { type: String },
   address: { type: String },
   radius: { type: Number, default: 10 },
-  status: { type: String, enum: ['pending', 'active', 'suspended'], default: 'pending' }
+  status: { type: String, enum: ['pending', 'active', 'suspended'], default: 'pending' },
+  isVerified: { type: Boolean, default: false }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Hospital', HospitalSchema);

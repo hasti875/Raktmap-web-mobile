@@ -19,7 +19,7 @@ const bloodRequestSchema = new mongoose.Schema({
   urgency: {
     type: String,
     required: true,
-    enum: ['low', 'medium', 'high']
+  enum: ['low', 'medium', 'high', 'pregnancy']
   },
   requiredBy: {
     type: Date,

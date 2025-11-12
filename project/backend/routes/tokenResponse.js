@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const ResponseToken = require('../models/ResponseToken');
 const BloodRequest = require('../models/BloodRequest');
 const Donor = require('../models/Donor');
@@ -59,45 +60,71 @@ router.post('/r/:token/respond', async (req, res) => {
       });
     }
     
-    // Create new donor location response
-    const donorLocationResponse = new DonorLocationResponse({
-      donorId: responseToken.donorId,
-      requestId: responseToken.requestId,
-      latitude,
-      longitude,
-      isAvailable: isAvailable !== false, // Default to true if not specified
-      address,
-      token,
-      responseTime: new Date()
-    });
+    // Get donor information
+    const donor = await Donor.findById(responseToken.donorId);
+    if (!donor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Donor not found'
+      });
+    }
     
-    await donorLocationResponse.save();
+    // Save to locations collection instead of donorresponses
+    const locationData = {
+      address: address || `${donor.name} - Response Location`,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      accuracy: 0, // Default accuracy
+      userName: donor.name,
+      rollNumber: donor.rollNumber || '', 
+      mobileNumber: donor.phone,
+      timestamp: new Date(),
+      // Additional fields for blood request tracking
+      requestId: responseToken.requestId,
+      donorId: responseToken.donorId,
+      token: token,
+      isAvailable: isAvailable !== false,
+      responseTime: new Date()
+    };
+    
+    console.log('Attempting to save to locations collection:', locationData);
+    
+    // Save directly to locations collection
+    const result = await mongoose.connection.db.collection('locations').insertOne(locationData);
+    console.log('✅ Location response saved successfully to locations collection');
     
     // Mark token as used
     responseToken.isUsed = true;
     await responseToken.save();
     
-    console.log(`✅ Location response saved for donor ${responseToken.donorId.name} at ${latitude}, ${longitude}`);
+    console.log(`✅ Location response saved for donor ${donor.name} at ${latitude}, ${longitude}`);
     
     res.json({
       success: true,
       message: 'Response recorded successfully',
       data: {
-        donorId: responseToken.donorId._id,
-        requestId: responseToken.requestId._id,
+        donorId: responseToken.donorId,
+        requestId: responseToken.requestId,
         latitude,
         longitude,
         isAvailable,
         address,
-        responseTime: donorLocationResponse.responseTime
+        responseTime: locationData.responseTime,
+        locationId: result.insertedId
       }
     });
     
   } catch (error) {
     console.error('Error recording response:', error);
+    console.error('Error details:', error.message);
+    console.error('Stack trace:', error.stack);
+    
+    // Return specific error details for debugging
     res.status(500).json({
       success: false,
-      message: 'Failed to record response'
+      message: 'Failed to record response',
+      error: error.message,
+      details: error.errors ? Object.keys(error.errors).join(', ') : 'Unknown error'
     });
   }
 });

@@ -15,6 +15,92 @@ router.get('/test', (req, res) => {
   });
 });
 
+// Handle direct location sharing from frontend page (not SMS)
+router.post('/donor-location', async (req, res) => {
+  try {
+    console.log('=== DIRECT LOCATION SHARING FROM FRONTEND ===');
+    const { requestId, donorId, lat, lng } = req.body;
+    
+    console.log('Received data:', { requestId, donorId, lat, lng });
+    
+    if (!requestId || !donorId || !lat || !lng) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: requestId, donorId, lat, lng' 
+      });
+    }
+    
+    // Find the blood request to validate
+    const BloodRequest = require('../models/BloodRequest');
+    const bloodRequest = await BloodRequest.findById(requestId);
+    
+    if (!bloodRequest) {
+      return res.status(404).json({ error: 'Blood request not found' });
+    }
+    
+    console.log('Found blood request:', {
+      id: bloodRequest._id,
+      bloodGroup: bloodRequest.bloodGroup,
+      status: bloodRequest.status
+    });
+    
+    // Try to find donor information
+    let donorInfo = null;
+    try {
+      const Donor = require('../models/Donor');
+      donorInfo = await Donor.findById(donorId);
+      if (!donorInfo) {
+        donorInfo = await Donor.findOne({ uniqueId: donorId });
+      }
+    } catch (error) {
+      console.log('Could not find donor in database, proceeding with location only');
+    }
+    
+    // Create location data with proper requestId
+    const locationData = {
+      address: donorInfo ? `${donorInfo.name} - Current Location` : 'Direct location share',
+      latitude: parseFloat(lat),
+      longitude: parseFloat(lng),
+      accuracy: 0,
+      userName: donorInfo ? donorInfo.name : `Donor ${donorId}`,
+      rollNumber: donorInfo ? donorInfo.rollNumber || '' : '',
+      mobileNumber: donorInfo ? donorInfo.phone : '',
+      timestamp: new Date(),
+      // IMPORTANT: Store the requestId from the frontend
+      requestId: requestId,
+      donorId: donorId,
+      token: `DIRECT_${requestId}_${donorId}`, // Generate a unique token
+      isAvailable: true,
+      responseTime: new Date()
+    };
+    
+    console.log('Saving location with requestId:', locationData.requestId);
+    
+    // Save to locations collection
+    const mongoose = require('mongoose');
+    const result = await mongoose.connection.db.collection('locations').insertOne(locationData);
+    
+    console.log('✅ Location saved successfully with requestId:', requestId);
+    
+    res.json({
+      success: true,
+      message: 'Location shared successfully',
+      data: {
+        locationId: result.insertedId,
+        requestId: requestId,
+        donorId: donorId,
+        coordinates: { lat, lng }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in direct location sharing:', error);
+    res.status(500).json({ 
+      error: 'Failed to save location',
+      details: error.message 
+    });
+  }
+});
+
 // Get all available donors with their information
 router.get('/available-donors', async (req, res) => {
   try {
@@ -142,26 +228,25 @@ const Location = mongoose.model('Location', LocationSchema);
 // Get all locations (user positions) for the live map
 router.get('/locations', async (req, res) => {
   try {
-    console.log('=== FETCHING LOCATIONS WITH BLOOD GROUP INFO ===');
+    console.log('=== FETCHING ALL LOCATIONS FOR LIVE MAP ===');
     
     // Get all donors to match with location data
     const donors = await Donor.find({});
     console.log('Found donors for matching:', donors.length);
     
-    // Get locations from the old locations collection
-    const allDocuments = await mongoose.connection.db.collection('locations').find({}).toArray();
-    console.log('Old locations found:', allDocuments.length);
+    // Get all locations from the locations collection (simplified approach)
+    const allLocations = await mongoose.connection.db.collection('locations').find({}).toArray();
+    console.log('Total locations found:', allLocations.length);
     
-    // Get new location responses from DonorLocationResponse model
-    const newLocationResponses = await DonorLocationResponse.find({})
-      .populate('donorId')
-      .populate('requestId')
-      .sort({ createdAt: -1 });
-    console.log('New location responses found:', newLocationResponses.length);
-    
-    // Transform old locations
-    const transformedOldLocations = allDocuments.map(location => {
-      console.log('Processing old location for:', location.userName);
+    // Transform locations with donor info
+    const transformedLocations = allLocations.map(location => {
+      console.log('Processing location for:', location.userName);
+      console.log('Location data:', {
+        userName: location.userName,
+        mobileNumber: location.mobileNumber,
+        requestId: location.requestId,
+        timestamp: location.timestamp
+      });
       
       // Try to match with donor data to get blood group
       const matchingDonor = donors.find(donor => {
@@ -169,66 +254,48 @@ router.get('/locations', async (req, res) => {
                           donor.phone?.replace(/\s+/g, '') === location.mobileNumber?.replace(/\s+/g, '');
         const nameMatch = donor.name && location.userName && 
                          donor.name.toLowerCase().trim() === location.userName.toLowerCase().trim();
+        
+        console.log(`Checking donor ${donor.name} (${donor.phone}) against location ${location.userName} (${location.mobileNumber})`);
+        console.log(`Phone match: ${phoneMatch}, Name match: ${nameMatch}`);
+        
         return phoneMatch || nameMatch;
       });
       
       if (matchingDonor) {
-        console.log(`Matched ${location.userName} with donor ${matchingDonor.name}, blood group: ${matchingDonor.bloodGroup}`);
+        console.log(`✅ Matched ${location.userName} with donor ${matchingDonor.name}, blood group: ${matchingDonor.bloodGroup}`);
+      } else {
+        console.log(`⚠️ No donor match found for ${location.userName}`);
+        console.log('Available donors:', donors.map(d => `${d.name} (${d.phone})`));
       }
       
       return {
         _id: location._id.toString(),
         name: location.userName || 'Unknown User',
         phone: location.mobileNumber || 'No phone',
-        donorId: location.rollNumber || 'No ID',
+        donorId: location.donorId || location.rollNumber || 'No ID',
         bloodGroup: matchingDonor ? matchingDonor.bloodGroup : 'Unknown',
         location: {
           lat: location.latitude,
           lng: location.longitude
         },
         status: 'responded',
-        responseTime: location.timestamp || new Date(),
+        responseTime: location.responseTime || location.timestamp || new Date(),
         address: location.address,
-        source: 'old_collection'
+        requestId: location.requestId || null,
+        isAvailable: location.isAvailable !== false,
+        token: location.token || null
       };
     });
     
-    // Transform new location responses
-    const transformedNewLocations = newLocationResponses.map(response => {
-      console.log('Processing new location response for:', response.donorId?.name);
-      
-      return {
-        _id: response._id.toString(),
-        name: response.donorId?.name || 'Unknown User',
-        phone: response.donorId?.phone || 'No phone',
-        donorId: response.donorId?._id.toString() || 'No ID',
-        bloodGroup: response.donorId?.bloodGroup || 'Unknown',
-        location: {
-          lat: response.latitude,
-          lng: response.longitude
-        },
-        status: response.isAvailable ? 'responded' : 'unavailable',
-        responseTime: response.responseTime || response.createdAt,
-        address: response.address,
-        requestId: response.requestId?._id.toString(),
-        source: 'new_model'
-      };
-    });
-    
-    // Combine both sources, prioritizing new responses
-    const allLocations = [...transformedNewLocations, ...transformedOldLocations];
-    
-    console.log('Total combined locations:', allLocations.length);
-    console.log('New model locations:', transformedNewLocations.length);
-    console.log('Old collection locations:', transformedOldLocations.length);
+    console.log('Total locations processed:', transformedLocations.length);
     
     res.json({
       success: true,
-      responses: allLocations,
+      responses: transformedLocations,
       summary: {
-        total: allLocations.length,
-        newModel: transformedNewLocations.length,
-        oldCollection: transformedOldLocations.length
+        total: transformedLocations.length,
+        matched: transformedLocations.filter(loc => loc.bloodGroup !== 'Unknown').length,
+        unmatched: transformedLocations.filter(loc => loc.bloodGroup === 'Unknown').length
       }
     });
   } catch (error) {
@@ -303,15 +370,37 @@ router.get('/responses/:requestId', async (req, res) => {
       .sort({ createdAt: -1 });
     console.log('New location responses found for request:', newLocationResponses.length);
     
-    // Get old locations with time filtering
-    let oldLocationFilter = {};
+    // Get locations that responded to this specific request
+    let locationFilter = { requestId: requestId };
     if (Object.keys(responseTimeFilter).length > 0) {
-      oldLocationFilter.timestamp = responseTimeFilter;
+      locationFilter.timestamp = responseTimeFilter;
     }
     
-    const locations = await mongoose.connection.db.collection('locations')
-      .find(oldLocationFilter)
+    console.log('Looking for locations with specific requestId:', locationFilter);
+    const locationsWithRequestId = await mongoose.connection.db.collection('locations')
+      .find(locationFilter)
       .toArray();
+    
+    console.log(`Locations found with requestId ${requestId}:`, locationsWithRequestId.length);
+    
+    // ALSO get locations without requestId but created after this request
+    // This handles cases where users submit location directly without SMS token
+    let fallbackFilter = { 
+      requestId: { $exists: false } // No requestId field
+    };
+    if (Object.keys(responseTimeFilter).length > 0) {
+      fallbackFilter.timestamp = responseTimeFilter;
+    }
+    
+    console.log('Looking for locations without requestId (fallback):', fallbackFilter);
+    const locationsWithoutRequestId = await mongoose.connection.db.collection('locations')
+      .find(fallbackFilter)
+      .toArray();
+    
+    console.log(`Locations found without requestId (created after request):`, locationsWithoutRequestId.length);
+    
+    // Combine both sets of locations
+    const locations = [...locationsWithRequestId, ...locationsWithoutRequestId];
     
     // Transform new location responses with enhanced time info
     const transformedNewResponses = newLocationResponses.map(response => {
@@ -419,6 +508,52 @@ router.get('/responses/:requestId', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch donor responses',
+      error: error.message
+    });
+  }
+});
+
+// Get recent blood requests for dropdown filtering
+router.get('/recent-requests', async (req, res) => {
+  try {
+    const BloodRequest = require('../models/BloodRequest');
+    const Hospital = require('../models/Hospital');
+    
+    // Get recent blood requests (last 7 days)
+    const sevenDaysAgo = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
+    
+    const recentRequests = await BloodRequest.find({
+      createdAt: { $gte: sevenDaysAgo }
+    })
+    .populate('hospitalId', 'name')
+    .sort({ createdAt: -1 })
+    .limit(20);
+    
+    // Format requests for dropdown
+    const formattedRequests = recentRequests.map(request => ({
+      _id: request._id,
+      label: `${request.bloodGroup} - ${request.quantity} unit(s) - ${request.hospitalId?.name || 'Unknown Hospital'} - ${new Date(request.createdAt).toLocaleDateString('en-GB')}`,
+      bloodGroup: request.bloodGroup,
+      quantity: request.quantity,
+      urgency: request.urgency,
+      hospitalName: request.hospitalId?.name || 'Unknown Hospital',
+      createdAt: request.createdAt,
+      status: request.status
+    }));
+    
+    console.log(`Found ${formattedRequests.length} recent blood requests for dropdown`);
+    
+    res.json({
+      success: true,
+      requests: formattedRequests,
+      total: formattedRequests.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching recent requests:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch recent requests',
       error: error.message
     });
   }

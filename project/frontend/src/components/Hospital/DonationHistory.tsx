@@ -2,6 +2,15 @@ import { useState, useEffect } from 'react';
 import { History, Download, Filter, FileText, Loader } from 'lucide-react';
 import { Table } from '../Shared/Table';
 import axiosInstance from '../../utils/axios';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+// Extend jsPDF with autoTable
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: typeof autoTable;
+  }
+}
 
 interface DonationRecord {
   _id: string;
@@ -156,8 +165,123 @@ export function DonationHistory() {
   });
 
   const handleExport = (format: 'csv' | 'pdf') => {
-    console.log(`Exporting ${format.toUpperCase()}...`);
-    // Handle export functionality
+    const dataToExport = filteredDonations;
+    const currentDate = new Date().toLocaleDateString().replace(/\//g, '-');
+    const filename = `donation-history-${currentDate}`;
+
+    if (format === 'csv') {
+      // CSV Export
+      const csvHeaders = [
+        'Date',
+        'Donor Name',
+        'Phone Number',
+        'Blood Group',
+        'Status',
+        'Accepted At',
+        'Completed At',
+        'Location',
+        'Address',
+        'Notes'
+      ];
+
+      const csvData = dataToExport.map(donation => [
+        new Date(donation.createdAt).toLocaleDateString(),
+        donation.donorName || 'N/A',
+        donation.donorPhone || 'N/A',
+        donation.donorBloodGroup || 'N/A',
+        donation.status || 'N/A',
+        donation.acceptedAt ? new Date(donation.acceptedAt).toLocaleDateString() : 'N/A',
+        donation.completedAt ? new Date(donation.completedAt).toLocaleDateString() : 'N/A',
+        donation.location ? `${donation.location.lat.toFixed(6)}, ${donation.location.lng.toFixed(6)}` : 'N/A',
+        donation.address || 'N/A',
+        donation.notes || 'N/A'
+      ]);
+
+      const csvContent = [csvHeaders, ...csvData]
+        .map(row => row.map(field => `"${field}"`).join(','))
+        .join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${filename}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+    } else if (format === 'pdf') {
+      // PDF Export
+      const doc = new jsPDF();
+      
+      // Add title
+      doc.setFontSize(18);
+      doc.text('Donation History Report', 14, 22);
+      
+      // Add generation date
+      doc.setFontSize(11);
+      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 32);
+      doc.text(`Total Records: ${dataToExport.length}`, 14, 38);
+      
+      // Add statistics
+      const stats = {
+        total: dataToExport.length,
+        completed: dataToExport.filter(d => d.status === 'completed').length,
+        declined: dataToExport.filter(d => d.status === 'declined').length,
+        accepted: dataToExport.filter(d => d.status === 'accepted').length,
+        pending: dataToExport.filter(d => d.status === 'pending').length
+      };
+
+      doc.text(`Completed: ${stats.completed} | Accepted: ${stats.accepted} | Pending: ${stats.pending} | Declined: ${stats.declined}`, 14, 44);
+
+      // Prepare table data
+      const tableHeaders = [
+        'Date',
+        'Donor Name',
+        'Phone',
+        'Blood Group',
+        'Status',
+        'Location'
+      ];
+
+      const tableData = dataToExport.map(donation => [
+        new Date(donation.createdAt).toLocaleDateString(),
+        donation.donorName || 'N/A',
+        donation.donorPhone || 'N/A',
+        donation.donorBloodGroup || 'N/A',
+        donation.status || 'N/A',
+        donation.address || 'N/A'
+      ]);
+
+      // Add table using jspdf-autotable
+      autoTable(doc, {
+        head: [tableHeaders],
+        body: tableData,
+        startY: 52,
+        styles: {
+          fontSize: 9,
+          cellPadding: 3,
+        },
+        headStyles: {
+          fillColor: [220, 53, 69],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        columnStyles: {
+          0: { cellWidth: 25 }, // Date
+          1: { cellWidth: 35 }, // Donor Name
+          2: { cellWidth: 30 }, // Phone
+          3: { cellWidth: 25 }, // Blood Group
+          4: { cellWidth: 25 }, // Status
+          5: { cellWidth: 40 }  // Location
+        }
+      });
+
+      doc.save(`${filename}.pdf`);
+    }
+
+    console.log(`${format.toUpperCase()} export completed for ${dataToExport.length} records`);
   };
 
   const stats = {

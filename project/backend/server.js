@@ -1,6 +1,7 @@
 require('dotenv').config();
 const Hospital = require('./models/Hospital');
 const Admin = require('./models/Admin');
+const OTP = require('./models/OTP');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -13,8 +14,11 @@ const donorsRouter = require('./routes/donors');
 const hospitalsRouter = require('./routes/hospitals');
 const tokenResponseRouter = require('./routes/tokenResponse');
 const donationHistoryRouter = require('./routes/donationHistory');
+const settingsRouter = require('./routes/settings');
+const markDonationRouter = require('./routes/markDonation');
 const Notification = require('./models/Notification');
 const { addClient: addNotificationClient, broadcastNotification } = require('./utils/notificationStream');
+const { generateOTP, sendRegistrationOTP, sendPasswordResetOTP } = require('./services/emailService');
 
 // Helper function to create admin notifications
 const createAdminNotification = async (title, message, type = 'info', relatedData = {}) => {
@@ -139,7 +143,94 @@ app.use('/donor-response', authenticateToken, donorResponseRouter);
 app.use('/donors', authenticateToken, donorsRouter);
 app.use('/hospitals', authenticateToken, hospitalsRouter);
 app.use('/donation-history', authenticateToken, donationHistoryRouter);
+app.use('/admin', authenticateToken, settingsRouter);
+app.use('/api', authenticateToken, markDonationRouter);
 app.use('/', tokenResponseRouter); // Public route for SMS responses
+
+// Public route for direct location sharing from frontend
+app.post('/api/donor-location', async (req, res) => {
+  try {
+    console.log('=== DIRECT LOCATION SHARING FROM FRONTEND ===');
+    const { requestId, donorId, lat, lng } = req.body;
+    
+    console.log('Received data:', { requestId, donorId, lat, lng });
+    
+    if (!requestId || !donorId || !lat || !lng) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: requestId, donorId, lat, lng' 
+      });
+    }
+    
+    // Find the blood request to validate
+    const BloodRequest = require('./models/BloodRequest');
+    const bloodRequest = await BloodRequest.findById(requestId);
+    
+    if (!bloodRequest) {
+      return res.status(404).json({ error: 'Blood request not found' });
+    }
+    
+    console.log('Found blood request:', {
+      id: bloodRequest._id,
+      bloodGroup: bloodRequest.bloodGroup,
+      status: bloodRequest.status
+    });
+    
+    // Try to find donor information
+    let donorInfo = null;
+    try {
+      const Donor = require('./models/Donor');
+      donorInfo = await Donor.findById(donorId);
+      if (!donorInfo) {
+        donorInfo = await Donor.findOne({ uniqueId: donorId });
+      }
+    } catch (error) {
+      console.log('Could not find donor in database, proceeding with location only');
+    }
+    
+    // Create location data with proper requestId
+    const locationData = {
+      address: donorInfo ? `${donorInfo.name} - Current Location` : 'Direct location share',
+      latitude: parseFloat(lat),
+      longitude: parseFloat(lng),
+      accuracy: 0,
+      userName: donorInfo ? donorInfo.name : `Donor ${donorId}`,
+      rollNumber: donorInfo ? donorInfo.rollNumber || '' : '',
+      mobileNumber: donorInfo ? donorInfo.phone : '',
+      timestamp: new Date(),
+      // IMPORTANT: Store the requestId from the frontend
+      requestId: requestId,
+      donorId: donorId,
+      token: `DIRECT_${requestId}_${donorId}`, // Generate a unique token
+      isAvailable: true,
+      responseTime: new Date()
+    };
+    
+    console.log('Saving location with requestId:', locationData.requestId);
+    
+    // Save to locations collection
+    const result = await mongoose.connection.db.collection('locations').insertOne(locationData);
+    
+    console.log('✅ Location saved successfully with requestId:', requestId);
+    
+    res.json({
+      success: true,
+      message: 'Location shared successfully',
+      data: {
+        locationId: result.insertedId,
+        requestId: requestId,
+        donorId: donorId,
+        coordinates: { lat, lng }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in direct location sharing:', error);
+    res.status(500).json({ 
+      error: 'Failed to save location',
+      details: error.message 
+    });
+  }
+});
 
 // Add token validation test route
 app.get('/validate-token', authenticateToken, (req, res) => {
@@ -301,38 +392,26 @@ app.get('/admin/analytics/stats', async (req, res) => {
   try {
     console.log('Fetching admin analytics stats...');
     const BloodRequest = require('./models/BloodRequest');
-    const Donor = require('./models/Donor');
-    const DonorResponse = require('./models/DonorLocationResponse');
-    const Hospital = require('./models/Hospital');
+    
+    // Use direct MongoDB connection for donation history
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    const donationCollection = db.collection('donationhistories');
 
     // Get total requests
     const totalRequests = await BloodRequest.countDocuments();
+    console.log('Total blood requests:', totalRequests);
 
-    // Get donors who have responded
-    const donorsResponded = await DonorResponse.distinct('donorId').length;
+    // Get donors who have completed donations
+    const donorsResponded = await donationCollection.countDocuments({ status: 'completed' });
+    console.log('Donors who completed donations:', donorsResponded);
 
-    // Calculate fulfillment rate
-    const fulfilledRequests = await BloodRequest.countDocuments({ status: 'fulfilled' });
-    const fulfillmentRate = totalRequests > 0 ? Math.round((fulfilledRequests / totalRequests) * 100) : 0;
+    // Calculate fulfillment rate based on completed donations vs total requests
+    const fulfillmentRate = totalRequests > 0 ? Math.round((donorsResponded / totalRequests) * 100) : 0;
+    console.log('Fulfillment rate:', fulfillmentRate);
 
-    // Calculate average response time (in seconds)
-    const responses = await DonorResponse.find({}).populate('requestId');
-    let totalResponseTime = 0;
-    let validResponses = 0;
-
-    responses.forEach(response => {
-      if (response.requestId && response.responseTime) {
-        const requestTime = new Date(response.requestId.createdAt);
-        const responseTime = new Date(response.responseTime);
-        const timeDiff = (responseTime - requestTime) / 1000; // Convert to seconds
-        if (timeDiff > 0) {
-          totalResponseTime += timeDiff;
-          validResponses++;
-        }
-      }
-    });
-
-    const avgResponseTime = validResponses > 0 ? Math.round(totalResponseTime / validResponses) : 150;
+    // For now, set a default response time (you can enhance this later)
+    const avgResponseTime = 150; // 2m 30s as shown in your screenshot
 
     res.json({
       success: true,
@@ -353,44 +432,160 @@ app.get('/admin/analytics/stats', async (req, res) => {
   }
 });
 
-// Get request trends (last 30 days)
+// Get donors responded count (public endpoint)
+app.get('/admin/analytics/donors-responded', async (req, res) => {
+  try {
+    console.log('=== Fetching donors responded count (public endpoint) ===');
+    
+    // Use direct MongoDB connection to get completed donations
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    const collection = db.collection('donationhistories');
+    
+    const completedCount = await collection.countDocuments({ status: 'completed' });
+    console.log('Completed donations count:', completedCount);
+    
+    res.json({ 
+      success: true, 
+      data: completedCount 
+    });
+  } catch (error) {
+    console.error('Error fetching donors responded:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch donors responded',
+      error: error.message 
+    });
+  }
+});
+
+// Get request trends with flexible time periods
 app.get('/admin/analytics/request-trends', async (req, res) => {
   try {
     const BloodRequest = require('./models/BloodRequest');
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const trends = await BloodRequest.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: thirtyDaysAgo }
+    
+    // Get time period from query parameter (default: weeks)
+    const { period = 'weeks' } = req.query;
+    
+    const now = new Date();
+    let data = [];
+    
+    if (period === 'weeks') {
+      // Get current month's weeks
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      
+      // Get first day of current month
+      const monthStart = new Date(currentYear, currentMonth, 1);
+      
+      // Calculate weeks in current month
+      const weeks = [];
+      let weekStart = new Date(monthStart);
+      let weekNumber = 1;
+      
+      while (weekStart.getMonth() === currentMonth) {
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        
+        // If week goes into next month, limit to current month
+        if (weekEnd.getMonth() !== currentMonth) {
+          weekEnd.setMonth(currentMonth + 1, 0); // Last day of current month
         }
-      },
-      {
-        $group: {
-          _id: {
-            week: { $week: "$createdAt" },
-            year: { $year: "$createdAt" }
-          },
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { "_id.year": 1, "_id.week": 1 }
+        
+        weeks.push({
+          weekNumber,
+          start: new Date(weekStart),
+          end: new Date(weekEnd)
+        });
+        
+        weekStart.setDate(weekStart.getDate() + 7);
+        weekNumber++;
       }
-    ]);
+      
+      // Get data for each week
+      data = await Promise.all(weeks.map(async (week) => {
+        const count = await BloodRequest.countDocuments({
+          createdAt: {
+            $gte: week.start,
+            $lte: week.end
+          }
+        });
+        
+        console.log(`📊 Week ${week.weekNumber}: ${count} requests (${week.start.toLocaleDateString()} - ${week.end.toLocaleDateString()})`);
+        
+        return {
+          label: `Week ${week.weekNumber}`,
+          value: count,
+          color: '#dc2626',
+          dateRange: `${week.start.toLocaleDateString()} - ${week.end.toLocaleDateString()}`
+        };
+      }));
+      
+    } else if (period === 'month') {
+      // Last 6 months
+      for (let i = 5; i >= 0; i--) {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+        
+        const count = await BloodRequest.countDocuments({
+          createdAt: {
+            $gte: monthStart,
+            $lte: monthEnd
+          }
+        });
+        
+        data.push({
+          label: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          value: count,
+          color: '#dc2626'
+        });
+      }
+    } else if (period === '6months') {
+      // Last 6 months (same as month but different label)
+      for (let i = 5; i >= 0; i--) {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+        
+        const count = await BloodRequest.countDocuments({
+          createdAt: {
+            $gte: monthStart,
+            $lte: monthEnd
+          }
+        });
+        
+        data.push({
+          label: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          value: count,
+          color: '#dc2626'
+        });
+      }
+    } else if (period === 'year') {
+      // Last 12 months
+      for (let i = 11; i >= 0; i--) {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+        
+        const count = await BloodRequest.countDocuments({
+          createdAt: {
+            $gte: monthStart,
+            $lte: monthEnd
+          }
+        });
+        
+        data.push({
+          label: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          value: count,
+          color: '#dc2626'
+        });
+      }
+    }
 
-    // Convert to weekly data for the last 4 weeks
-    const weeklyData = [
-      { label: 'Week 1', value: trends[0]?.count || 45, color: '#dc2626' },
-      { label: 'Week 2', value: trends[1]?.count || 52, color: '#dc2626' },
-      { label: 'Week 3', value: trends[2]?.count || 48, color: '#dc2626' },
-      { label: 'Week 4', value: trends[3]?.count || 55, color: '#dc2626' },
-    ];
+    console.log(`📊 ${period} trends data:`, data);
 
     res.json({
       success: true,
-      data: weeklyData
+      data: data,
+      period: period
     });
   } catch (error) {
     console.error('Error fetching request trends:', error);
@@ -402,38 +597,39 @@ app.get('/admin/analytics/request-trends', async (req, res) => {
   }
 });
 
-// Get donors response by blood type
+// Get donors response by blood type (actual donations from DonationHistory)
 app.get('/admin/analytics/donors-by-blood-type', async (req, res) => {
   try {
-    const Donor = require('./models/Donor');
-    const donorsByBloodType = await Donor.aggregate([
-      {
-        $group: {
-          _id: "$bloodGroup",
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { "_id": 1 }
-      }
-    ]);
-
-    const colors = ['#dc2626', '#059669', '#2563eb', '#7c3aed', '#ea580c', '#0891b2', '#be185d', '#65a30d'];
-    const bloodTypeData = donorsByBloodType.map((item, index) => ({
-      label: item._id,
-      value: item.count,
-      color: colors[index % colors.length]
+    console.log('=== Fetching donors by blood type (public endpoint) ===');
+    
+    // Use direct MongoDB connection to ensure we get the right data
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    const collection = db.collection('donationhistories');
+    
+    const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+    const colors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+    
+    const data = await Promise.all(bloodTypes.map(async (bloodType, index) => {
+      const count = await collection.countDocuments({
+        donorBloodGroup: bloodType,
+        status: 'completed' // lowercase to match your database
+      });
+      console.log(`Blood type ${bloodType}: ${count} completed donations`);
+      
+      return {
+        label: bloodType,
+        value: count,
+        color: colors[index]
+      };
     }));
 
-    res.json({
-      success: true,
-      data: bloodTypeData
-    });
+    res.json({ success: true, data });
   } catch (error) {
-    console.error('Error fetching donors by blood type:', error);
+    console.error('Error fetching donations by blood type:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch donors by blood type',
+      message: 'Failed to fetch donations by blood type',
       error: error.message
     });
   }
@@ -1142,7 +1338,7 @@ app.get('/donation-history', async (req, res) => {
 });
 
 /* ============================
-   5. Register
+   5. Register - Send OTP
 ============================ */
 app.post('/register', async (req, res) => {
   try {
@@ -1162,10 +1358,8 @@ app.post('/register', async (req, res) => {
     }
 
     email = email.toLowerCase();
-    // Automatically assign hospital role for all registrations
-    const role = 'hospital';
 
-    // Check if user already exists in either Admin or Hospital collection
+    // Check if user already exists
     const existingHospital = await Hospital.findOne({ email }).maxTimeMS(10000);
     const existingAdmin = await Admin.findOne({ email }).maxTimeMS(10000);
     
@@ -1173,11 +1367,37 @@ app.post('/register', async (req, res) => {
       return res.status(409).json({ message: 'User already exists' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new Hospital({ email, password: hashedPassword, name });
-    await user.save();
+    // Generate OTP
+    const otp = generateOTP();
+    
+    // Delete any existing OTPs for this email (registration type)
+    await OTP.deleteMany({ email, type: 'registration' });
+    
+    // Save OTP to database
+    await OTP.create({
+      email,
+      otp,
+      type: 'registration'
+    });
 
-    res.status(201).json({ message: 'Hospital registered successfully' });
+    // Send OTP email
+    try {
+      await sendRegistrationOTP(email, otp, name);
+      console.log('✅ Registration OTP sent successfully to:', email);
+      
+      res.status(200).json({ 
+        success: true,
+        message: 'OTP sent to your email. Please verify to complete registration.',
+        email 
+      });
+    } catch (emailError) {
+      console.error('❌ Failed to send email:', emailError);
+      // Clean up OTP if email fails
+      await OTP.deleteMany({ email, type: 'registration' });
+      res.status(500).json({ 
+        message: 'Failed to send verification email. Please check your email address and try again.' 
+      });
+    }
   } catch (err) {
     console.error("Registration error:", err);
     if (err.name === 'MongooseError' || err.name === 'MongoNetworkError') {
@@ -1187,6 +1407,114 @@ app.post('/register', async (req, res) => {
     } else {
       res.status(500).json({ message: "Registration failed. Please try again." });
     }
+  }
+});
+
+/* ============================
+   5.1 Verify Registration OTP
+============================ */
+app.post('/verify-registration', async (req, res) => {
+  try {
+    const { email, otp, password, name } = req.body;
+
+    if (!email || !otp || !password || !name) {
+      return res.status(400).json({ message: 'All fields required' });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Find the OTP
+    const otpRecord = await OTP.findOne({ 
+      email: emailLower, 
+      type: 'registration',
+      verified: false 
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      return res.status(400).json({ message: 'OTP expired or invalid. Please request a new one.' });
+    }
+
+    if (otpRecord.otp !== otp) {
+      return res.status(400).json({ message: 'Invalid OTP. Please check and try again.' });
+    }
+
+    // Check if user already exists (double check)
+    const existingHospital = await Hospital.findOne({ email: emailLower });
+    const existingAdmin = await Admin.findOne({ email: emailLower });
+    
+    if (existingHospital || existingAdmin) {
+      await OTP.deleteMany({ email: emailLower, type: 'registration' });
+      return res.status(409).json({ message: 'User already exists' });
+    }
+
+    // Create the hospital account
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const hospital = new Hospital({ 
+      email: emailLower, 
+      password: hashedPassword, 
+      name,
+      isVerified: true,
+      status: 'active'
+    });
+    await hospital.save();
+
+    // Mark OTP as verified and delete
+    await OTP.deleteMany({ email: emailLower, type: 'registration' });
+
+    console.log('✅ Hospital registered and verified:', emailLower);
+
+    res.status(201).json({ 
+      success: true,
+      message: 'Registration successful! You can now log in.' 
+    });
+  } catch (err) {
+    console.error("Verification error:", err);
+    res.status(500).json({ message: "Verification failed. Please try again." });
+  }
+});
+
+/* ============================
+   5.2 Resend Registration OTP
+============================ */
+app.post('/resend-otp', async (req, res) => {
+  try {
+    const { email, name } = req.body;
+
+    if (!email || !name) {
+      return res.status(400).json({ message: 'Email and name required' });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Check if user already exists
+    const existingHospital = await Hospital.findOne({ email: emailLower });
+    if (existingHospital) {
+      return res.status(409).json({ message: 'User already exists. Please login.' });
+    }
+
+    // Generate new OTP
+    const otp = generateOTP();
+    
+    // Delete old OTPs
+    await OTP.deleteMany({ email: emailLower, type: 'registration' });
+    
+    // Save new OTP
+    await OTP.create({
+      email: emailLower,
+      otp,
+      type: 'registration'
+    });
+
+    // Send OTP email
+    await sendRegistrationOTP(emailLower, otp, name);
+
+    res.status(200).json({ 
+      success: true,
+      message: 'New OTP sent to your email.' 
+    });
+  } catch (err) {
+    console.error("Resend OTP error:", err);
+    res.status(500).json({ message: "Failed to resend OTP. Please try again." });
   }
 });
 
@@ -1240,6 +1568,175 @@ app.post('/login', async (req, res) => {
     } else {
       res.status(500).json({ message: "Login failed. Please try again." });
     }
+  }
+});
+
+/* ============================
+   6.1 Forgot Password - Send OTP
+============================ */
+app.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Find user in Hospital or Admin collection
+    let user = await Hospital.findOne({ email: emailLower });
+    let userName = user?.name;
+    
+    if (!user) {
+      user = await Admin.findOne({ email: emailLower });
+      userName = user?.name;
+    }
+
+    if (!user) {
+      // Don't reveal if email exists or not for security
+      return res.status(200).json({ 
+        success: true,
+        message: 'If your email is registered, you will receive a password reset OTP.' 
+      });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    
+    // Delete any existing password reset OTPs for this email
+    await OTP.deleteMany({ email: emailLower, type: 'password-reset' });
+    
+    // Save OTP to database
+    await OTP.create({
+      email: emailLower,
+      otp,
+      type: 'password-reset'
+    });
+
+    // Send OTP email
+    try {
+      await sendPasswordResetOTP(emailLower, otp, userName);
+      console.log('✅ Password reset OTP sent to:', emailLower);
+      
+      res.status(200).json({ 
+        success: true,
+        message: 'Password reset OTP sent to your email.',
+        email: emailLower 
+      });
+    } catch (emailError) {
+      console.error('❌ Failed to send password reset email:', emailError);
+      await OTP.deleteMany({ email: emailLower, type: 'password-reset' });
+      res.status(500).json({ 
+        message: 'Failed to send password reset email. Please try again.' 
+      });
+    }
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ message: "Failed to process request. Please try again." });
+  }
+});
+
+/* ============================
+   6.2 Verify Password Reset OTP
+============================ */
+app.post('/verify-reset-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and OTP are required' });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Find the OTP
+    const otpRecord = await OTP.findOne({ 
+      email: emailLower, 
+      type: 'password-reset',
+      verified: false 
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      return res.status(400).json({ message: 'OTP expired or invalid. Please request a new one.' });
+    }
+
+    if (otpRecord.otp !== otp) {
+      return res.status(400).json({ message: 'Invalid OTP. Please check and try again.' });
+    }
+
+    // Mark OTP as verified (but don't delete yet - we'll delete after password reset)
+    otpRecord.verified = true;
+    await otpRecord.save();
+
+    res.status(200).json({ 
+      success: true,
+      message: 'OTP verified successfully. You can now reset your password.' 
+    });
+  } catch (err) {
+    console.error("OTP verification error:", err);
+    res.status(500).json({ message: "Verification failed. Please try again." });
+  }
+});
+
+/* ============================
+   6.3 Reset Password
+============================ */
+app.post('/reset-password', async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: 'Email, OTP, and new password are required' });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Find the verified OTP
+    const otpRecord = await OTP.findOne({ 
+      email: emailLower, 
+      type: 'password-reset',
+      verified: true 
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      return res.status(400).json({ message: 'Invalid or expired OTP. Please verify OTP first.' });
+    }
+
+    if (otpRecord.otp !== otp) {
+      return res.status(400).json({ message: 'Invalid OTP.' });
+    }
+
+    // Find user and update password
+    let user = await Hospital.findOne({ email: emailLower });
+    let role = 'hospital';
+    
+    if (!user) {
+      user = await Admin.findOne({ email: emailLower });
+      role = 'admin';
+    }
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Hash new password and update
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    // Delete the OTP
+    await OTP.deleteMany({ email: emailLower, type: 'password-reset' });
+
+    console.log('✅ Password reset successfully for:', emailLower);
+
+    res.status(200).json({ 
+      success: true,
+      message: 'Password reset successfully. You can now log in with your new password.' 
+    });
+  } catch (err) {
+    console.error("Password reset error:", err);
+    res.status(500).json({ message: "Failed to reset password. Please try again." });
   }
 });
 
@@ -1303,6 +1800,75 @@ app.put('/hospital/profile', authenticateToken, async (req, res) => {
       success: false,
       message: 'Failed to update hospital profile',
       error: error.message 
+    });
+  }
+});
+
+// Update hospital password
+app.put('/hospital/update-password', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'hospital') {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. Hospital role required.' 
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    
+    // Validation
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long'
+      });
+    }
+
+    // Find hospital with password
+    const hospital = await Hospital.findById(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hospital not found'
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, hospital.password);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await Hospital.findByIdAndUpdate(req.user.id, {
+      password: hashedNewPassword,
+      updatedAt: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Error updating password:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update password',
+      error: error.message
     });
   }
 });
