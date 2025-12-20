@@ -70,7 +70,9 @@ const RegisterForm: React.FC = () => {
     try {
       const response = await axios.post('/verify-registration', {
         email: form.email,
-        otp: otp
+        otp: otp,
+        password: form.password,
+        name: form.name
       });
 
       if (response.data.success) {

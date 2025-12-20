@@ -126,6 +126,19 @@ router.post('/mark-donation', async (req, res) => {
       console.log('Request found:', bloodRequest ? `YES (${bloodRequest.bloodGroup}, status: ${bloodRequest.status})` : 'NO');
     }
     
+    // If no specific request found, try to find a matching pending request
+    if (!bloodRequest && donorRecord?.bloodGroup) {
+      bloodRequest = await BloodRequest.findOne({
+        bloodGroup: donorRecord.bloodGroup,
+        status: 'pending'
+      }).sort({ createdAt: -1 }); // Get the most recent one
+      
+      if (bloodRequest) {
+        console.log('Found matching pending request:', bloodRequest._id, 'for blood group:', bloodRequest.bloodGroup);
+      }
+    }
+    
+    // Still no request? Create one
     if (!bloodRequest) {
       bloodRequest = await BloodRequest.create({
         hospitalId: new mongoose.Types.ObjectId(),
@@ -135,7 +148,7 @@ router.post('/mark-donation', async (req, res) => {
         status: 'pending',  // Changed to pending so it can be fulfilled
         requiredBy: new Date(Date.now() + 24 * 60 * 60 * 1000)
       });
-      console.log('Created request:', bloodRequest._id);
+      console.log('Created new request:', bloodRequest._id);
     }
 
     // Create donation history using location data primarily
