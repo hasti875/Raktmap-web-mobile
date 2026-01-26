@@ -1,54 +1,5 @@
 {
-    "version": 2,
-    "builds": [
-        {
-            "src": "project/backend/server.js",
-            "use": "@vercel/node"
-        },
-        {
-            "src": "project/frontend/package.json",
-            "use": "@vercel/static-build",
-            "config": {
-                "distDir": "dist"
-            }
-        }
-    ],
-    "routes": [
-        {
-            "src": "/api/(.*)",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/blood-requests/(.*)",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/donor-response/(.*)",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/donors/(.*)",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/hospitals/(.*)",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/donation-history/(.*)",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/admin/(.*)",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/validate-token",
-            "dest": "project/backend/server.js"
-        },
-        {
-            "src": "/(.*)",
-            "dest": "project/frontend/dist/$1"
-        }
-    ]
+    "buildCommand": "cd project/frontend && npm install && npm run build",
+    "outputDirectory": "project/frontend/dist",
+    "installCommand": "npm install --prefix project/frontend"
 }
