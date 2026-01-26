@@ -1,6 +1,6 @@
-import { 
-  Home, Users, Building2, Heart, Settings, Bell, 
-  Map, BarChart3, History, FileText, Search, CheckCircle
+import {
+  Home, Users, Building2, Heart, Settings, Bell,
+  Map, BarChart3, FileText, CheckCircle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -27,12 +27,9 @@ export function Sidebar({ activeSection, setActiveSection }: SidebarProps) {
 
   const hospitalSections = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'request-blood', label: 'Request Blood', icon: Heart },
     { id: 'donors', label: 'Available Donors', icon: Users },
-    { id: 'mark-donation', label: 'Mark Donation', icon: CheckCircle },
     { id: 'map', label: 'Live Map', icon: Map },
-    { id: 'history', label: 'Donation History', icon: History },
-    { id: 'search', label: 'Search Donors', icon: Search },
+    { id: 'mark-donation', label: 'Mark Donation', icon: CheckCircle },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -50,17 +47,16 @@ export function Sidebar({ activeSection, setActiveSection }: SidebarProps) {
           </div>
         </div>
       </div>
-      
+
       <nav className="p-4 space-y-2">
         {sections.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setActiveSection(id)}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
-              activeSection === id
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${activeSection === id
                 ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
+              }`}
           >
             <Icon className="h-5 w-5" />
             <span className="font-medium">{label}</span>

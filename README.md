@@ -6,9 +6,11 @@ A comprehensive blood donation management system that connects donors with hospi
 
 - **SMS-based Donor Alerts**: Send location-specific alerts to donors via SMS
 - **Real-time Location Tracking**: Track donor responses and locations on live maps
+- **Real-time Notifications**: Instant alerts when donors share their location 🆕
 - **Hospital Dashboard**: Manage blood requests and view available donors
 - **Admin Panel**: Complete system administration and analytics
 - **Secure Authentication**: JWT-based authentication for hospitals and admins
+- **Docker Support**: Production-ready containerization with Docker Compose 🆕
 
 ## 🏗️ Tech Stack
 
@@ -83,13 +85,42 @@ A comprehensive blood donation management system that connects donors with hospi
    - Frontend: http://localhost:5173
    - Backend API: http://localhost:5000
 
+## 🐳 Docker Deployment (Recommended)
+
+For production deployment or easier setup, use Docker:
+
+```bash
+# 1. Configure environment
+cp project/backend/.env.example project/backend/.env
+# Edit .env with your credentials
+
+# 2. Build and start with Docker Compose
+docker-compose up -d
+
+# 3. Access the application
+# Frontend: http://localhost
+# Backend: http://localhost:5000
+```
+
+**Using Makefile (convenience commands):**
+```bash
+make build    # Build Docker images
+make up       # Start all services
+make logs     # View logs
+make health   # Check service health
+make down     # Stop services
+```
+
+📖 **See [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) for complete Docker documentation**
+
 ## 📱 Usage
 
 ### For Hospitals
 1. Register/Login as a hospital
 2. Create blood requests
 3. View live map of available donors
-4. Track donation history
+4. Receive real-time notifications when donors share location 🆕
+5. Track donation history
 
 ### For Donors
 1. Receive SMS alerts for nearby blood requests
@@ -128,6 +159,13 @@ RaktMap/
 │       │   └── utils/       # Frontend utilities
 └── README.md
 ```
+
+## 📚 Documentation
+
+- **[DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md)** - Complete Docker containerization guide
+- **[NOTIFICATION_SYSTEM.md](NOTIFICATION_SYSTEM.md)** - Real-time notification system documentation
+- **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Summary of recent implementations
+- **[LOCATION_EXPIRY_IMPLEMENTATION.md](LOCATION_EXPIRY_IMPLEMENTATION.md)** - Location expiry feature details
 
 ## 🤝 Contributing
 

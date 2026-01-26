@@ -1,12 +1,33 @@
 import { useState, useEffect } from 'react';
 import { Heart, Users, CheckCircle, MapPin, Phone, RefreshCw } from 'lucide-react';
 import { StatsCard } from '../Shared/StatsCard';
-import { DonorsList } from './DonorsList';
 import axios from 'axios';
+import { toast } from 'react-toastify';
+
+// Helper function to decode JWT and extract hospital ID
+const getHospitalIdFromToken = (): string | null => {
+  const token = localStorage.getItem('token');
+  if (!token) return null;
+
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+
+    const decoded = JSON.parse(jsonPayload);
+    return decoded.id || null;
+  } catch (error) {
+    console.error('Failed to decode token:', error);
+    return null;
+  }
+};
 
 interface DashboardStats {
   activeRequests: number;
   availableDonors: number;
+  totalDonors: number;
   completedThisMonth: number;
 }
 
@@ -29,10 +50,10 @@ interface RespondingDonor {
 }
 
 export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: string) => void }) {
-  const [isDonorsListOpen, setIsDonorsListOpen] = useState(false);
   const [stats, setStats] = useState<DashboardStats>({
     activeRequests: 0,
     availableDonors: 0,
+    totalDonors: 0,
     completedThisMonth: 0
   });
   const [recentRequests, setRecentRequests] = useState<BloodRequest[]>([]);
@@ -42,6 +63,48 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
 
   useEffect(() => {
     fetchDashboardData();
+
+    // Connect to SSE for real-time notifications
+    const hospitalId = getHospitalIdFromToken();
+    if (!hospitalId) return;
+
+    const eventSource = new EventSource(`http://localhost:5000/notifications/stream/${hospitalId}`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'notification' && data.notification) {
+          const notif = data.notification;
+
+          // Show toast notification
+          toast.success(
+            <div>
+              <strong>{notif.title}</strong>
+              <p className="text-sm mt-1">{notif.message}</p>
+            </div>,
+            {
+              position: "top-right",
+              autoClose: 8000,
+              hideProgressBar: false,
+              closeOnClick: true,
+              pauseOnHover: true,
+              draggable: true,
+            }
+          );
+
+          // Play notification sound
+          const audio = new Audio('/notification.mp3');
+          audio.play().catch(() => console.log('Could not play sound'));
+
+          // Refresh dashboard data
+          fetchDashboardData();
+        }
+      } catch (error) {
+        console.error('Error parsing SSE message:', error);
+      }
+    };
+
+    return () => eventSource.close();
   }, []);
 
   const fetchDashboardData = async () => {
@@ -73,7 +136,7 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
           // Calculate stats from the requests
           const activeCount = allRequests.filter((req: any) => req.status === 'pending').length;
           const completedCount = allRequests.filter((req: any) => req.status === 'fulfilled').length;
-          
+
           setStats(prevStats => ({
             ...prevStats,
             activeRequests: activeCount,
@@ -90,33 +153,33 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
         const availableDonorsResponse = await axios.get('http://localhost:5000/donor-response/available-donors');
         if (availableDonorsResponse.data.success) {
           const donors = availableDonorsResponse.data.donors || [];
-          
+
           // Calculate distance for each donor (simplified calculation)
           const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
             const R = 6371; // Earth's radius in kilometers
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLng = (lng2 - lng1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLng/2) * Math.sin(dLng/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             return R * c;
           };
-          
+
           // Hospital location (Charusat coordinates)
           const hospitalLat = 22.6013;
           const hospitalLng = 72.8327;
-          
+
           // Filter to only donors who have responded (have location data) and show top 5
           const respondedDonors = donors
             .filter((donor: any) => donor.hasLocationData && donor.location)
             .slice(0, 5);
-          
+
           const formattedDonors: RespondingDonor[] = respondedDonors.map((donor: any, index: number) => {
-            const distance = donor.location ? 
-              calculateDistance(hospitalLat, hospitalLng, donor.location.lat, donor.location.lng) : 
+            const distance = donor.location ?
+              calculateDistance(hospitalLat, hospitalLng, donor.location.lat, donor.location.lng) :
               null;
-            
+
             return {
               id: index + 1,
               name: donor.name || 'Unknown Donor',
@@ -126,13 +189,15 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
               status: donor.status || 'responded'
             };
           });
-          
+
           setRespondingDonors(formattedDonors);
-          
-          // Update available donors count to all donors (not just responded ones)
+
+          // Update donor counts
+          const donorsWithLocation = donors.filter((donor: any) => donor.hasLocationData && donor.location);
           setStats(prevStats => ({
             ...prevStats,
-            availableDonors: donors.length
+            totalDonors: donors.length, // Total donors in database
+            availableDonors: donorsWithLocation.length // Only donors with location
           }));
         }
       } catch (donorErr) {
@@ -148,14 +213,15 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
     } catch (err: any) {
       console.error('Error fetching dashboard data:', err);
       setError(err.response?.data?.message || 'Failed to fetch dashboard data');
-      
+
       // Set empty data instead of mock data
       setStats({
         activeRequests: 0,
         availableDonors: 0,
+        totalDonors: 0,
         completedThisMonth: 0
       });
-      
+
       setRecentRequests([]);
       setRespondingDonors([]);
     } finally {
@@ -217,7 +283,24 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
       {/* Dashboard Content */}
       {!loading && !error && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Prominent Request Blood Button */}
+          <div className="bg-gradient-to-r from-red-500 to-red-600 rounded-xl shadow-lg p-6 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <h2 className="text-2xl font-bold text-white mb-2">Need Blood Urgently?</h2>
+                <p className="text-red-100">Send emergency blood request to matching donors instantly</p>
+              </div>
+              <button
+                onClick={() => onNavigate && onNavigate('request-blood')}
+                className="bg-white text-red-600 px-8 py-4 rounded-lg font-bold text-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-xl flex items-center space-x-2"
+              >
+                <Heart className="h-6 w-6" />
+                <span>Request Blood</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatsCard
               title="Active Requests"
               value={stats.activeRequests}
@@ -227,8 +310,14 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
             <StatsCard
               title="Available Donors"
               value={stats.availableDonors}
-              icon={Users}
+              icon={MapPin}
               color="blue"
+            />
+            <StatsCard
+              title="Total Donors"
+              value={stats.totalDonors}
+              icon={Users}
+              color="yellow"
             />
             <StatsCard
               title="Completed This Month"
@@ -262,20 +351,19 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
                         <div className="flex items-center space-x-2">
                           <span className="font-medium text-gray-900 dark:text-white">{request.bloodGroup}</span>
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getUrgencyColor(request.urgency)}`}>
-                                {request.urgency}
-                              </span>
+                            {request.urgency}
+                          </span>
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
                           {request.units} units • {new Date(request.createdAt).toLocaleDateString()}
                         </p>
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        request.status === 'fulfilled' 
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                          : request.status === 'pending'
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${request.status === 'fulfilled'
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                        : request.status === 'pending'
                           ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
                           : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
-                      }`}>
+                        }`}>
                         {request.status}
                       </span>
                     </div>
@@ -317,7 +405,7 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button 
+              <button
                 onClick={() => onNavigate && onNavigate('request-blood')}
                 className="p-4 border-2 border-dashed border-red-300 dark:border-red-700 rounded-lg text-center hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
               >
@@ -325,15 +413,15 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
                 <p className="text-sm font-medium text-gray-900 dark:text-white">Emergency Request</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Send urgent blood request</p>
               </button>
-              <button 
-                onClick={() => setIsDonorsListOpen(true)}
+              <button
+                onClick={() => onNavigate && onNavigate('donors')}
                 className="p-4 border-2 border-dashed border-blue-300 dark:border-blue-700 rounded-lg text-center hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
               >
                 <Users className="h-8 w-8 text-blue-600 mx-auto mb-2" />
                 <p className="text-sm font-medium text-gray-900 dark:text-white">View Donors</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Browse available donors</p>
               </button>
-              <button 
+              <button
                 onClick={() => onNavigate && onNavigate('map')}
                 className="p-4 border-2 border-dashed border-green-300 dark:border-green-700 rounded-lg text-center hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
               >
@@ -345,12 +433,6 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
           </div>
         </>
       )}
-
-      {/* Donors List Modal */}
-      <DonorsList 
-        isOpen={isDonorsListOpen} 
-        onClose={() => setIsDonorsListOpen(false)} 
-      />
     </div>
   );
 }

@@ -2,6 +2,17 @@ import { useState, useEffect } from 'react';
 import { MapPin, Users, Filter, RefreshCw, Navigation, Maximize, X } from 'lucide-react';
 import { CharusatMap } from '../Hospital/CharusatMap';
 import axios from 'axios';
+import { toast } from 'react-toastify';
+
+// Helper to get hospital ID from JWT
+const getHospitalIdFromToken = (): string | null => {
+  const token = localStorage.getItem('token');
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.id || null;
+  } catch { return null; }
+};
 
 interface DonorResponse {
   _id: string;
@@ -61,7 +72,7 @@ export function LiveMap() {
       'O+': ['O+', 'O-'],                     // O+ can receive from O+, O-
       'O-': ['O-']                            // O- can only receive from O- (universal donor to others, but restrictive recipient)
     };
-    
+
     console.log(`Blood compatibility for ${requestedBloodGroup}:`, compatibility[requestedBloodGroup] || []);
     return compatibility[requestedBloodGroup] || [];
   };
@@ -75,9 +86,9 @@ export function LiveMap() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
-      
+
       console.log('Blood requests response:', response.data);
-      
+
       if (response.data.success) {
         // Add "All User Locations" as first option
         const allLocationsOption: BloodRequest = {
@@ -88,7 +99,7 @@ export function LiveMap() {
           status: 'active',
           createdAt: new Date().toISOString()
         };
-        
+
         const updatedRequests = [allLocationsOption, ...response.data.bloodRequests];
         setBloodRequests(updatedRequests);
         setDebugInfo(prev => prev + `\n✓ Fetched ${response.data.bloodRequests.length} blood requests`);
@@ -96,7 +107,7 @@ export function LiveMap() {
     } catch (error: any) {
       console.error('Error fetching blood requests:', error);
       setDebugInfo(prev => prev + `\n✗ Error fetching blood requests: ${error.message}`);
-      
+
       // Fallback to mock data for development
       const mockRequests: BloodRequest[] = [
         {
@@ -119,12 +130,12 @@ export function LiveMap() {
       setRefreshing(true);
       console.log('=== FRONTEND: Fetching all user locations ===');
       setDebugInfo(prev => prev + `\n🔄 Fetching user locations...`);
-      
+
       const response = await axios.get('http://localhost:5000/donor-response/locations');
       console.log('Full API Response:', response);
       console.log('Response data:', response.data);
       console.log('Response status:', response.status);
-      
+
       if (response.data && response.data.success) {
         console.log('API Success - Setting locations:', response.data.responses);
         console.log('Number of responses:', response.data.responses?.length || 0);
@@ -140,7 +151,7 @@ export function LiveMap() {
       console.error('Error details:', error);
       console.error('Error response:', error.response);
       setDebugInfo(prev => prev + `\n✗ Error: ${error.message || 'Network error'}`);
-      
+
       // Try to show some mock data for testing
       const mockData: DonorResponse[] = [
         {
@@ -178,23 +189,23 @@ export function LiveMap() {
       setDebugInfo(prev => prev + `\n⚠ No request selected`);
       return;
     }
-    
+
     console.log('=== FETCHING DONOR RESPONSES ===');
     setDebugInfo(prev => prev + `\n🔄 Fetching responses for: ${selectedRequest}`);
-    
+
     if (selectedRequest === 'all-locations') {
       console.log('Selected "All Locations" - fetching user locations');
       await fetchUserLocations();
       return;
     }
-    
+
     try {
       setRefreshing(true);
       console.log('Fetching responses for request:', selectedRequest);
-      
+
       const response = await axios.get(`http://localhost:5000/donor-response/responses/${selectedRequest}`);
       console.log('API Response:', response.data);
-      
+
       if (response.data && response.data.success) {
         console.log('Setting donor responses:', response.data.responses);
         setDonorResponses(response.data.responses || []);
@@ -216,16 +227,16 @@ export function LiveMap() {
       console.log('=== TESTING SPECIFIC REQUEST API ===');
       const requestId = '68a47ea630f9050be02bc4b5'; // The ID from your SMS
       setDebugInfo(prev => prev + `\n🧪 Testing API for request: ${requestId}`);
-      
+
       const response = await axios.get(`http://localhost:5000/donor-response/responses/${requestId}`);
       console.log('Direct API Response:', response);
       console.log('Response Data:', response.data);
-      
+
       if (response.data && response.data.success) {
         const responses = response.data.responses || [];
         console.log('Parsed responses:', responses);
         setDebugInfo(prev => prev + `\n✅ Direct API test successful: ${responses.length} responses`);
-        
+
         // Log each response details
         responses.forEach((resp: any, index: number) => {
           console.log(`Response ${index + 1}:`, {
@@ -237,7 +248,7 @@ export function LiveMap() {
           });
           setDebugInfo(prev => prev + `\n  • ${resp.name} (${resp.bloodGroup}) at [${resp.location?.lat}, ${resp.location?.lng}]`);
         });
-        
+
         // Manually set the responses to see if it displays
         setDonorResponses(responses);
         setSelectedRequest(requestId);
@@ -255,7 +266,7 @@ export function LiveMap() {
     try {
       console.log('=== TESTING API CONNECTION ===');
       setDebugInfo(prev => prev + `\n🔧 Testing API connection...`);
-      
+
       const response = await axios.get('http://localhost:5000/donor-response/test');
       console.log('Test response:', response.data);
       setDebugInfo(prev => prev + `\n✓ API connection successful`);
@@ -270,10 +281,10 @@ export function LiveMap() {
     const R = 6371; // Earth's radius in kilometers
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
 
@@ -288,33 +299,33 @@ export function LiveMap() {
     console.log('=== COORDINATE DEBUGGING ===');
     console.log('Hospital Location (Charusat):', hospitalLocation);
     console.log('Expected Charusat coordinates: lat: 22.6013, lng: 72.8327');
-    
+
     donorResponses.forEach((donor, index) => {
       console.log(`\n--- Donor ${index + 1}: ${donor.name} ---`);
       console.log('Stored coordinates:', donor.location);
       console.log('Latitude:', donor.location?.lat);
       console.log('Longitude:', donor.location?.lng);
-      
+
       if (donor.location) {
         const distance = calculateDistance(
           hospitalLocation.lat, hospitalLocation.lng,
           donor.location.lat, donor.location.lng
         );
         console.log('Calculated distance:', distance.toFixed(2), 'km');
-        
+
         // Check if coordinates might be swapped
         const swappedDistance = calculateDistance(
           hospitalLocation.lat, hospitalLocation.lng,
           donor.location.lng, donor.location.lat // Swapped lat/lng
         );
         console.log('Distance if lat/lng swapped:', swappedDistance.toFixed(2), 'km');
-        
+
         // Check coordinate ranges
         console.log('Lat in valid range (20-25)?', donor.location.lat >= 20 && donor.location.lat <= 25);
         console.log('Lng in valid range (70-75)?', donor.location.lng >= 70 && donor.location.lng <= 75);
       }
     });
-    
+
     setDebugInfo(prev => prev + `\n🔍 Coordinate debug completed - check console`);
   };
 
@@ -332,7 +343,7 @@ export function LiveMap() {
         address: 'Very close to Charusat'
       },
       {
-        _id: 'nearby-2', 
+        _id: 'nearby-2',
         name: 'Nearby User 2',
         phone: '9999999992',
         donorId: 'NEAR002',
@@ -343,7 +354,7 @@ export function LiveMap() {
       },
       {
         _id: 'nearby-3',
-        name: 'Nearby User 3', 
+        name: 'Nearby User 3',
         phone: '9999999993',
         donorId: 'NEAR003',
         location: { lat: 22.6100, lng: 72.8400 }, // ~1km from Charusat
@@ -352,7 +363,7 @@ export function LiveMap() {
         address: '1km from Charusat'
       }
     ];
-    
+
     console.log('Setting nearby test users:', nearbyUsers);
     setDonorResponses(nearbyUsers);
     setDebugInfo(prev => prev + `\n🎯 Set ${nearbyUsers.length} nearby test users`);
@@ -366,7 +377,7 @@ export function LiveMap() {
     console.log('Filtered donors:', filteredDonors);
     console.log('Hospital location:', hospitalLocation);
     console.log('Current filters:', { radiusFilter, selectedStatus, selectedRequest });
-    
+
     // Test with a specific location
     if (donorResponses.length > 0) {
       const firstDonor = donorResponses[0];
@@ -380,11 +391,11 @@ export function LiveMap() {
         console.log('Distance under radius?', testDistance <= radiusFilter);
       }
     }
-    
+
     // Debug the actual blood request
     const selectedBloodRequest = bloodRequests.find(req => req._id === selectedRequest);
     console.log('Selected blood request:', selectedBloodRequest);
-    
+
     // Debug compatibility for each donor
     donorResponses.forEach((donor, index) => {
       console.log(`--- Donor ${index + 1}: ${donor.name} ---`);
@@ -423,7 +434,7 @@ export function LiveMap() {
         address: 'Near Charusat'
       }
     ];
-    
+
     console.log('Force setting test users:', testUsers);
     setDonorResponses(testUsers);
     setDebugInfo(prev => prev + `\n🔧 Force loaded ${testUsers.length} test users`);
@@ -433,17 +444,17 @@ export function LiveMap() {
     const initializeData = async () => {
       setLoading(true);
       setDebugInfo('=== INITIALIZING LIVE MAP ===');
-      
+
       try {
         // Test API connection first
         await testApiConnection();
-        
+
         // Then fetch blood requests
         await fetchBloodRequests();
-        
+
         // Then immediately fetch user locations since default is "all-locations"
         await fetchUserLocations();
-        
+
       } catch (error: any) {
         console.error('Initialization error:', error);
         setDebugInfo(prev => prev + `\n✗ Initialization error: ${error.message}`);
@@ -451,14 +462,14 @@ export function LiveMap() {
         setLoading(false);
       }
     };
-    
+
     initializeData();
   }, []);
 
   useEffect(() => {
     if (selectedRequest) {
       fetchDonorResponses();
-      
+
       // Set up auto-refresh every 10 seconds to quickly reflect donation updates
       const interval = setInterval(() => {
         fetchDonorResponses();
@@ -467,17 +478,43 @@ export function LiveMap() {
     }
   }, [selectedRequest]);
 
+  // SSE for real-time notifications
+  useEffect(() => {
+    const hospitalId = getHospitalIdFromToken();
+    if (!hospitalId) return;
+
+    const eventSource = new EventSource(`http://localhost:5000/notifications/stream/${hospitalId}`);
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'notification' && data.notification) {
+          toast.success(
+            <div>
+              <strong>{data.notification.title}</strong>
+              <p className="text-sm mt-1">{data.notification.message}</p>
+            </div>,
+            { position: "top-right", autoClose: 8000 }
+          );
+          fetchDonorResponses(); // Refresh map
+        }
+      } catch (error) {
+        console.error('SSE error:', error);
+      }
+    };
+    return () => eventSource.close();
+  }, []);
+
   // Add distance and blood group compatibility filtering to donor responses
   const donorsWithDistance = donorResponses.map((donor) => {
     const selectedBloodRequest = bloodRequests.find(req => req._id === selectedRequest);
     const bloodGroup = selectedBloodRequest ? selectedBloodRequest.bloodGroup : 'Unknown';
-    
+
     const distance = donor.location ? calculateDistance(
       hospitalLocation.lat, hospitalLocation.lng,
       donor.location.lat,
       donor.location.lng
     ) : 0;
-    
+
     // Add debug logging for each donor
     console.log('=== DONOR PROCESSING DEBUG ===');
     console.log('Donor:', donor.name);
@@ -488,7 +525,7 @@ export function LiveMap() {
     console.log('Calculated distance:', distance);
     console.log('Current radius filter:', radiusFilter);
     console.log('Distance filter passed?', distance <= radiusFilter);
-    
+
     // Check blood group compatibility if a specific request is selected
     let isCompatible = true;
     if (selectedRequest && selectedRequest !== 'all-locations' && selectedBloodRequest) {
@@ -501,7 +538,7 @@ export function LiveMap() {
       console.log('Donor blood group:', donorBloodGroup);
       console.log('Is compatible?', isCompatible, '(Unknown allowed for responses)');
     }
-    
+
     return {
       ...donor,
       id: donor._id,
@@ -574,15 +611,15 @@ export function LiveMap() {
             >
               {bloodRequests.map((request) => (
                 <option key={request._id} value={request._id}>
-                  {request._id === 'all-locations' 
-                    ? 'All User Locations' 
+                  {request._id === 'all-locations'
+                    ? 'All User Locations'
                     : `${request.bloodGroup} - ${new Date(request.createdAt).toLocaleDateString('en-GB')}`
                   }
                 </option>
               ))}
             </select>
           </div>
-          
+
           {/* Refresh Button */}
           <button
             onClick={fetchDonorResponses}
@@ -592,7 +629,7 @@ export function LiveMap() {
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
-          
+
           {/* Test API Button */}
           <button
             onClick={testApiConnection}
@@ -608,7 +645,7 @@ export function LiveMap() {
           >
             <span>Test SMS Request</span>
           </button>
-          
+
           {/* Debug Coordinates Button - NEW */}
           <button
             onClick={debugCoordinates}
@@ -640,7 +677,7 @@ export function LiveMap() {
           >
             <span>Force Test</span>
           </button>
-          
+
           <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
             <MapPin className="h-4 w-4" />
             <span>{filteredDonors.length} users found</span>
@@ -663,7 +700,7 @@ export function LiveMap() {
       <div className="bg-gray-100 border border-gray-300 text-gray-700 px-4 py-3 rounded">
         <div className="flex justify-between items-center">
           <strong>Debug Log:</strong>
-          <button 
+          <button
             onClick={() => setDebugInfo('')}
             className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300"
           >
@@ -703,7 +740,7 @@ export function LiveMap() {
                       </span>
                     </div>
                   )}
-                  
+
                   <select
                     value={selectedStatus}
                     onChange={(e) => setSelectedStatus(e.target.value)}
@@ -727,7 +764,7 @@ export function LiveMap() {
                     <Maximize className="h-4 w-4" />
                     <span>Fullscreen</span>
                   </button>
-                  
+
                   <div className="flex items-center space-x-2">
                     <div className="w-4 h-4 rounded-full bg-green-500 border-2 border-white shadow-sm"></div>
                     <span className="text-xs text-gray-600 dark:text-gray-400">Near (≤5km)</span>
@@ -750,7 +787,7 @@ export function LiveMap() {
                 console.log('=== MAP RENDERING DEBUG ===');
                 console.log('filteredDonors length:', filteredDonors.length);
                 console.log('filteredDonors data:', filteredDonors);
-                
+
                 const mapDonors = filteredDonors.map(d => ({
                   id: parseInt(d._id.slice(-6), 16) || Math.random() * 1000000,
                   name: d.name || 'Unknown',
@@ -760,9 +797,9 @@ export function LiveMap() {
                   seen: true,
                   distance: d.distance // Add distance to map donors
                 }));
-                
+
                 console.log('Map donors being passed to CharusatMap:', mapDonors);
-                
+
                 return filteredDonors.length > 0 ? (
                   <CharusatMap donors={mapDonors} />
                 ) : (
@@ -771,7 +808,7 @@ export function LiveMap() {
                       <MapPin className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p>No users found</p>
                       <p className="text-sm">Total loaded: {donorResponses.length}, Radius: {radiusFilter}km</p>
-                      <button 
+                      <button
                         onClick={() => setRadiusFilter(100)}
                         className="mt-2 text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded hover:bg-blue-200"
                       >
@@ -799,7 +836,7 @@ export function LiveMap() {
                 )}
               </div>
             </div>
-            
+
             <div className="max-h-96 overflow-y-auto">
               {filteredDonors.length === 0 ? (
                 <div className="p-4 text-center text-gray-500 dark:text-gray-400">
@@ -807,7 +844,7 @@ export function LiveMap() {
                   <p className="text-sm">No users found in this area</p>
                   <p className="text-xs mt-1">Total locations loaded: {donorResponses.length}</p>
                   <p className="text-xs">Try increasing the radius filter</p>
-                  <button 
+                  <button
                     onClick={fetchUserLocations}
                     className="mt-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
                   >
@@ -817,7 +854,7 @@ export function LiveMap() {
               ) : (
                 filteredDonors.map((donor) => {
                   const distanceInfo = getDistanceCategory(donor.distance);
-                  
+
                   return (
                     <div key={donor._id} className="p-4 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700">
                       <div className="flex items-center justify-between mb-2">
@@ -868,7 +905,7 @@ export function LiveMap() {
             <Users className="h-8 w-8 text-blue-600" />
           </div>
         </div>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -878,7 +915,7 @@ export function LiveMap() {
             <div className="w-8 h-8 rounded-full bg-green-500"></div>
           </div>
         </div>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -888,7 +925,7 @@ export function LiveMap() {
             <div className="w-8 h-8 rounded-full bg-green-500"></div>
           </div>
         </div>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -898,7 +935,7 @@ export function LiveMap() {
             <div className="w-8 h-8 rounded-full bg-red-500"></div>
           </div>
         </div>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -921,7 +958,7 @@ export function LiveMap() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white">Live User Map - Fullscreen</h2>
-                  
+
                   {/* Quick controls in fullscreen */}
                   <div className="flex items-center space-x-2">
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Radius:</span>
@@ -935,7 +972,7 @@ export function LiveMap() {
                     />
                     <span className="text-sm text-gray-600 dark:text-gray-400">{radiusFilter}km</span>
                   </div>
-                  
+
                   <select
                     value={selectedRequest}
                     onChange={(e) => setSelectedRequest(e.target.value)}
@@ -943,15 +980,15 @@ export function LiveMap() {
                   >
                     {bloodRequests.map((request) => (
                       <option key={request._id} value={request._id}>
-                        {request._id === 'all-locations' 
-                          ? 'All User Locations' 
+                        {request._id === 'all-locations'
+                          ? 'All User Locations'
                           : `${request.bloodGroup} - ${new Date(request.createdAt).toLocaleDateString('en-GB')}`
                         }
                       </option>
                     ))}
                   </select>
                 </div>
-                
+
                 {/* Close button */}
                 <button
                   onClick={toggleFullscreen}
@@ -963,7 +1000,7 @@ export function LiveMap() {
                 </button>
               </div>
             </div>
-            
+
             {/* Fullscreen Map Content */}
             <div className="absolute inset-0 pt-20 pb-20 z-[9998]">
               {(() => {
@@ -976,7 +1013,7 @@ export function LiveMap() {
                   seen: true,
                   distance: d.distance
                 }));
-                
+
                 return filteredDonors.length > 0 ? (
                   <div className="w-full h-full">
                     <CharusatMap donors={mapDonors} />
@@ -987,7 +1024,7 @@ export function LiveMap() {
                       <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
                       <p className="text-xl">No users found</p>
                       <p className="text-sm">Total loaded: {donorResponses.length}, Radius: {radiusFilter}km</p>
-                      <button 
+                      <button
                         onClick={() => setRadiusFilter(100)}
                         className="mt-4 text-sm bg-blue-100 text-blue-700 px-4 py-2 rounded hover:bg-blue-200"
                       >
@@ -998,7 +1035,7 @@ export function LiveMap() {
                 );
               })()}
             </div>
-            
+
             {/* Stats overlay in fullscreen */}
             <div className="absolute bottom-0 left-0 right-0 z-[10000] p-4 bg-white dark:bg-gray-800 bg-opacity-95 dark:bg-opacity-95 border-t border-gray-200 dark:border-gray-700">
               <div className="grid grid-cols-4 gap-4">
@@ -1011,7 +1048,7 @@ export function LiveMap() {
                     <Users className="h-6 w-6 text-blue-600" />
                   </div>
                 </div>
-                
+
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1021,7 +1058,7 @@ export function LiveMap() {
                     <div className="w-6 h-6 rounded-full bg-green-500"></div>
                   </div>
                 </div>
-                
+
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1031,7 +1068,7 @@ export function LiveMap() {
                     <div className="w-6 h-6 rounded-full bg-green-500"></div>
                   </div>
                 </div>
-                
+
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
                   <div className="flex items-center justify-between">
                     <div>

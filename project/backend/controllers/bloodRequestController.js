@@ -8,30 +8,30 @@ const { broadcastNotification } = require('../utils/notificationStream');
 
 // Blood compatibility chart - who each recipient blood type can receive from (donors)
 const bloodRecipientCompatibilityChart = {
-    'A-': ['A-', 'O-'],                                    // A- can receive from A-, O-
-    'A+': ['A+', 'A-', 'O+', 'O-'],                       // A+ can receive from A+, A-, O+, O-
-    'B-': ['B-', 'O-'],                                    // B- can receive from B-, O-
-    'B+': ['B+', 'B-', 'O+', 'O-'],                       // B+ can receive from B+, B-, O+, O-
-    'AB-': ['AB-', 'A-', 'B-', 'O-'],                     // AB- can receive from AB-, A-, B-, O-
-    'AB+': ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'], // AB+ universal recipient
-    'O-': ['O-'],                                          // O- can only receive from O-
-    'O+': ['O+', 'O-']                                     // O+ can receive from O+, O-
+  'A-': ['A-', 'O-'],                                    // A- can receive from A-, O-
+  'A+': ['A+', 'A-', 'O+', 'O-'],                       // A+ can receive from A+, A-, O+, O-
+  'B-': ['B-', 'O-'],                                    // B- can receive from B-, O-
+  'B+': ['B+', 'B-', 'O+', 'O-'],                       // B+ can receive from B+, B-, O+, O-
+  'AB-': ['AB-', 'A-', 'B-', 'O-'],                     // AB- can receive from AB-, A-, B-, O-
+  'AB+': ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'], // AB+ universal recipient
+  'O-': ['O-'],                                          // O- can only receive from O-
+  'O+': ['O+', 'O-']                                     // O+ can receive from O+, O-
 };
 
 // Function to check blood compatibility - can this recipient receive from this donor?
 function isBloodCompatible(recipientBloodGroup, donorBloodGroup) {
-    // Normalize blood groups by removing spaces and converting to uppercase
-    const normalizedRecipient = recipientBloodGroup.replace(/\s+/g, '').toUpperCase();
-    const normalizedDonor = donorBloodGroup.replace(/\s+/g, '').toUpperCase();
-    
-    console.log(`🔬 Compatibility check: Recipient ${recipientBloodGroup} (normalized: ${normalizedRecipient}) <- Donor ${donorBloodGroup} (normalized: ${normalizedDonor})`);
-    console.log(`🔬 Compatible donors for ${normalizedRecipient}: ${bloodRecipientCompatibilityChart[normalizedRecipient] || 'NONE FOUND'}`);
-    
-    // Check if this recipient can receive from this donor
-    const isCompatible = bloodRecipientCompatibilityChart[normalizedRecipient]?.includes(normalizedDonor) || false;
-    console.log(`🔬 Result: ${isCompatible}`);
-    
-    return isCompatible;
+  // Normalize blood groups by removing spaces and converting to uppercase
+  const normalizedRecipient = recipientBloodGroup.replace(/\s+/g, '').toUpperCase();
+  const normalizedDonor = donorBloodGroup.replace(/\s+/g, '').toUpperCase();
+
+  console.log(`🔬 Compatibility check: Recipient ${recipientBloodGroup} (normalized: ${normalizedRecipient}) <- Donor ${donorBloodGroup} (normalized: ${normalizedDonor})`);
+  console.log(`🔬 Compatible donors for ${normalizedRecipient}: ${bloodRecipientCompatibilityChart[normalizedRecipient] || 'NONE FOUND'}`);
+
+  // Check if this recipient can receive from this donor
+  const isCompatible = bloodRecipientCompatibilityChart[normalizedRecipient]?.includes(normalizedDonor) || false;
+  console.log(`🔬 Result: ${isCompatible}`);
+
+  return isCompatible;
 }
 
 // Create a new blood request
@@ -71,54 +71,60 @@ const createBloodRequest = async (req, res) => {
         meta: { bloodRequestId: bloodRequest._id }
       });
       broadcastNotification(notification);
-    } catch (e) { 
-      console.error('Failed to create notification:', e.message); 
+    } catch (e) {
+      console.error('Failed to create notification:', e.message);
     }
 
-    // Find compatible donors
+    // Find donors with EXACT blood group match (not compatible groups)
     const allDonors = await Donor.find({});
-    console.log(`\n🔍 === BLOOD COMPATIBILITY MATCHING ===`);
+    console.log(`\n🔍 === EXACT BLOOD GROUP MATCHING ===`);
     console.log(`Recipient needs: ${bloodGroup}`);
-    console.log(`Can receive from: ${bloodRecipientCompatibilityChart[bloodGroup]?.join(', ') || 'Unknown blood group'}`);
+    console.log(`Sending SMS ONLY to: ${bloodGroup} donors`);
     console.log(`Total donors found in database: ${allDonors.length}`);
-    
+
     // Log all donors for debugging
     console.log('\n📋 All donors in database:');
     allDonors.forEach((donor, index) => {
       const donorBloodGroup = donor.bloodGroup || donor["Blood Group"];
       console.log(`${index + 1}. ${donor.name} - Blood Group: ${donorBloodGroup} - Phone: ${donor.phone || donor.phoneNumber || donor["Mobile No"] || 'N/A'}`);
     });
-    
-    const compatibleDonors = allDonors.filter(donor => {
+
+    // Filter for EXACT blood group match only
+    const matchingDonors = allDonors.filter(donor => {
       const donorBloodGroup = donor.bloodGroup || donor["Blood Group"];
-      const isCompatible = donorBloodGroup && isBloodCompatible(bloodGroup, donorBloodGroup);
-      
-      console.log(`🔍 Checking ${donor.name} (${donorBloodGroup}) -> Compatible: ${isCompatible}`);
-      
-      if (donorBloodGroup && isCompatible) {
-        console.log(`✅ Compatible: ${donor.name} (${donorBloodGroup}) can donate to ${bloodGroup}`);
+
+      // Normalize blood groups for comparison
+      const normalizedRequested = bloodGroup.replace(/\s+/g, '').toUpperCase();
+      const normalizedDonor = donorBloodGroup ? donorBloodGroup.replace(/\s+/g, '').toUpperCase() : '';
+
+      const isExactMatch = normalizedDonor === normalizedRequested;
+
+      console.log(`🔍 Checking ${donor.name} (${donorBloodGroup}) -> Exact match: ${isExactMatch}`);
+
+      if (isExactMatch) {
+        console.log(`✅ MATCH: ${donor.name} (${donorBloodGroup}) matches ${bloodGroup}`);
       } else if (donorBloodGroup) {
-        console.log(`❌ Not compatible: ${donor.name} (${donorBloodGroup}) cannot donate to ${bloodGroup}`);
+        console.log(`❌ No match: ${donor.name} (${donorBloodGroup}) != ${bloodGroup}`);
       } else {
         console.log(`⚠️ Missing blood group: ${donor.name} has no blood group specified`);
       }
-      
-      return isCompatible;
+
+      return isExactMatch;
     });
-    
-    console.log(`Total compatible donors found: ${compatibleDonors.length}`);
+
+    console.log(`Total matching donors found: ${matchingDonors.length}`);
 
     console.log(`\n🩸 SMS DISPATCH STARTED 🩸`);
     console.log(`Hospital: ${hospital.name}`);
     console.log(`Blood Group Needed: ${bloodGroup}`);
     console.log(`Urgency Level: ${urgency}`);
-    console.log(`Total Compatible Donors Found: ${compatibleDonors.length}`);
+    console.log(`Total Matching Donors Found: ${matchingDonors.length}`);
     console.log(`-`.repeat(80));
 
     let smsSuccessCount = 0;
 
-    // Send SMS to compatible donors
-    for (const donor of compatibleDonors) {
+    // Send SMS to matching donors (exact blood group only)
+    for (const donor of matchingDonors) {
       const donorPhone = donor.phoneNumber || donor["Mobile No"] || donor.phone;
       const donorName = donor["Student Name"] || donor.name || donor._id;
 
@@ -149,11 +155,11 @@ const createBloodRequest = async (req, res) => {
         } else {
           urgencyText = 'LOW PRIORITY';
         }
-        
+
         // Get SMS template based on urgency
         const priority = (urgency === 'high' || urgency === 'pregnancy') ? 'high' : 'normal';
         const smsTemplate = await getSMSTemplate(priority);
-        
+
         // Template variables for message formatting
         const templateVars = {
           hospital: hospital.name,
@@ -163,9 +169,9 @@ const createBloodRequest = async (req, res) => {
           donorName: donorName,
           // UPDATED: Include both requestId and donorId in the URL
           responseUrl: `https://donor-location-tracker.onrender.com/donor-location/${bloodRequest._id}`,
-          
+
         };
-        
+
         // Special handling for pregnancy emergencies
         let message;
         if (urgency === 'pregnancy') {
@@ -175,22 +181,22 @@ const createBloodRequest = async (req, res) => {
         } else {
           // Use dynamic template with variable replacement
           message = formatSMSMessage(smsTemplate, templateVars);
-          
+
           // Add response URL if not already in template
           if (!message.includes('http') && !message.includes('{responseUrl}')) {
             message += ` Respond: ${templateVars.responseUrl}`;
           }
         }
-        
+
         console.log(`🔍 Debug - Sending SMS for urgency: ${urgency}`);
         console.log(`📝 Message content: ${message.substring(0, 100)}...`);
         console.log(`📏 Message length: ${message.length} characters`);
-        
+
         const smsResult = await sendSMS(donorPhone, message);
-        
+
         if (smsResult.success) {
           smsSuccessCount++;
-          
+
           // Enhanced logging with detailed user information
           console.log(`\n📤 ===== SMS SENT SUCCESSFULLY =====`);
           console.log(`👤 Donor Name: ${donorName}`);
@@ -212,19 +218,19 @@ const createBloodRequest = async (req, res) => {
               type: 'info',
               title: 'SMS Sent',
               message: `SMS sent to ${donorName} (${donorPhone})`,
-              meta: { 
+              meta: {
                 bloodRequestId: bloodRequest._id,
                 donorId: donor._id,
                 smsId: smsResult.sid
               }
             });
             broadcastNotification(notif);
-          } catch (e) { 
-            console.error('Failed to create SMS notification:', e.message); 
+          } catch (e) {
+            console.error('Failed to create SMS notification:', e.message);
           }
         } else {
           console.error(`❌ Failed to send SMS to ${donorName} (${donorPhone}):`, smsResult.error);
-          
+
           // Create error notification
           try {
             const errorNotif = await Notification.create({
@@ -232,28 +238,28 @@ const createBloodRequest = async (req, res) => {
               type: 'error',
               title: 'SMS Failed',
               message: `Failed to send SMS to ${donorName}: ${smsResult.error}`,
-              meta: { 
+              meta: {
                 bloodRequestId: bloodRequest._id,
                 donorId: donor._id,
                 error: smsResult.error
               }
             });
             broadcastNotification(errorNotif);
-          } catch (e) { 
-            console.error('Failed to create error notification:', e.message); 
+          } catch (e) {
+            console.error('Failed to create error notification:', e.message);
           }
         }
-        
+
       } catch (error) {
         console.error(`Error processing donor ${donorName}:`, error);
       }
     }
 
     console.log(`\n📊 ===== SMS DISPATCH SUMMARY =====`);
-    console.log(`Total Compatible Donors: ${compatibleDonors.length}`);
+    console.log(`Total Matching Donors: ${matchingDonors.length}`);
     console.log(`SMS Successfully Sent: ${smsSuccessCount}`);
-    console.log(`SMS Failed: ${compatibleDonors.length - smsSuccessCount}`);
-    console.log(`Success Rate: ${((smsSuccessCount / compatibleDonors.length) * 100).toFixed(1)}%`);
+    console.log(`SMS Failed: ${matchingDonors.length - smsSuccessCount}`);
+    console.log(`Success Rate: ${((smsSuccessCount / matchingDonors.length) * 100).toFixed(1)}%`);
     console.log(`===================================\n`);
 
     // Return success response
@@ -265,9 +271,9 @@ const createBloodRequest = async (req, res) => {
         bloodGroup: bloodRequest.bloodGroup,
         quantity: bloodRequest.quantity,
         urgency: bloodRequest.urgency,
-        compatibleDonors: compatibleDonors.length,
+        matchingDonors: matchingDonors.length,
         smsSuccessCount,
-        smsFailCount: compatibleDonors.length - smsSuccessCount
+        smsFailCount: matchingDonors.length - smsSuccessCount
       }
     });
 
@@ -287,7 +293,7 @@ const getAllBloodRequests = async (req, res) => {
     const requests = await BloodRequest.find({})
       .populate('hospitalId', 'name')
       .sort({ createdAt: -1 });
-    
+
     res.json({
       success: true,
       data: requests
@@ -307,14 +313,14 @@ const getBloodRequestById = async (req, res) => {
   try {
     const { id } = req.params;
     const request = await BloodRequest.findById(id).populate('hospitalId', 'name');
-    
+
     if (!request) {
       return res.status(404).json({
         success: false,
         message: 'Blood request not found'
       });
     }
-    
+
     res.json({
       success: true,
       data: request

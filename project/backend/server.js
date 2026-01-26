@@ -32,7 +32,7 @@ const createAdminNotification = async (title, message, type = 'info', relatedDat
       bloodRequestId: relatedData.bloodRequestId || null,
       read: false
     });
-    
+
     await notification.save();
     console.log(`Admin notification created: ${title}`);
     return notification;
@@ -41,14 +41,14 @@ const createAdminNotification = async (title, message, type = 'info', relatedDat
   }
 };
 
-const app = express();  
-app.use(cors({ 
+const app = express();
+app.use(cors({
   origin: [
-    'http://localhost:5173', 
+    'http://localhost:5173',
     'http://localhost:5174',
     'https://donor-location-tracker.onrender.com'
-  ], 
-  credentials: true 
+  ],
+  credentials: true
 }));
 // Increase JSON limit to support larger bulk imports
 app.use(bodyParser.json({ limit: '2mb' }));
@@ -88,7 +88,7 @@ async function connectToMongoDB() {
         console.log('4. Check firewall/antivirus');
         console.log('5. Make sure MONGODB_URI is correct in .env');
         console.log('6. Check if your internet connection is stable');
-        
+
         // Don't exit the process, continue with limited functionality
         console.log('⚠️  Server will continue running with limited database functionality');
         return;
@@ -113,7 +113,44 @@ db.on('disconnected', () => {
 db.on('reconnected', () => {
   console.log('✅ MongoDB reconnected successfully!');
 });
-db.once('open', () => console.log('✅ MongoDB connected successfully!'));
+
+db.once('open', async () => {
+  console.log('✅ MongoDB connected successfully!');
+
+  // ⏰ Create TTL index for automatic location cleanup after 1 hour
+  try {
+    const locationsCollection = mongoose.connection.db.collection('locations');
+
+    // Check if TTL index already exists
+    const indexes = await locationsCollection.indexes();
+    const hasTTLIndex = indexes.some(index =>
+      index.key.timestamp && index.expireAfterSeconds
+    );
+
+    if (!hasTTLIndex) {
+      await locationsCollection.createIndex(
+        { timestamp: 1 },
+        {
+          expireAfterSeconds: 3600, // 3600 seconds = 1 hour
+          name: 'location_ttl_index'
+        }
+      );
+      console.log('✅ TTL index created on locations collection - locations will auto-expire after 1 hour');
+    } else {
+      console.log('✅ TTL index already exists on locations collection');
+    }
+  } catch (error) {
+    console.error('⚠️  Failed to create TTL index (non-critical):', error.message);
+  }
+
+  // 🔍 Start MongoDB Change Stream watcher for real-time notifications
+  try {
+    const { startLocationWatcher } = require('./utils/locationWatcher');
+    startLocationWatcher();
+  } catch (error) {
+    console.error('⚠️  Failed to start location watcher:', error.message);
+  }
+});
 
 /* ============================
    2. JWT Secret
@@ -152,29 +189,29 @@ app.post('/api/donor-location', async (req, res) => {
   try {
     console.log('=== DIRECT LOCATION SHARING FROM FRONTEND ===');
     const { requestId, donorId, lat, lng } = req.body;
-    
+
     console.log('Received data:', { requestId, donorId, lat, lng });
-    
+
     if (!requestId || !donorId || !lat || !lng) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: requestId, donorId, lat, lng' 
+      return res.status(400).json({
+        error: 'Missing required fields: requestId, donorId, lat, lng'
       });
     }
-    
+
     // Find the blood request to validate
     const BloodRequest = require('./models/BloodRequest');
     const bloodRequest = await BloodRequest.findById(requestId);
-    
+
     if (!bloodRequest) {
       return res.status(404).json({ error: 'Blood request not found' });
     }
-    
+
     console.log('Found blood request:', {
       id: bloodRequest._id,
       bloodGroup: bloodRequest.bloodGroup,
       status: bloodRequest.status
     });
-    
+
     // Try to find donor information
     let donorInfo = null;
     try {
@@ -186,7 +223,7 @@ app.post('/api/donor-location', async (req, res) => {
     } catch (error) {
       console.log('Could not find donor in database, proceeding with location only');
     }
-    
+
     // Create location data with proper requestId
     const locationData = {
       address: donorInfo ? `${donorInfo.name} - Current Location` : 'Direct location share',
@@ -204,14 +241,14 @@ app.post('/api/donor-location', async (req, res) => {
       isAvailable: true,
       responseTime: new Date()
     };
-    
+
     console.log('Saving location with requestId:', locationData.requestId);
-    
+
     // Save to locations collection
     const result = await mongoose.connection.db.collection('locations').insertOne(locationData);
-    
+
     console.log('✅ Location saved successfully with requestId:', requestId);
-    
+
     res.json({
       success: true,
       message: 'Location shared successfully',
@@ -222,12 +259,12 @@ app.post('/api/donor-location', async (req, res) => {
         coordinates: { lat, lng }
       }
     });
-    
+
   } catch (error) {
     console.error('Error in direct location sharing:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to save location',
-      details: error.message 
+      details: error.message
     });
   }
 });
@@ -289,16 +326,16 @@ app.post('/admin/donors', async (req, res) => {
   try {
     const Donor = require('./models/Donor');
     const bcrypt = require('bcryptjs');
-    
+
     const donorData = { ...req.body };
     if (donorData.email) donorData.email = donorData.email.toLowerCase();
     if (donorData.password) {
       donorData.password = await bcrypt.hash(donorData.password, 10);
     }
-    
+
     const donor = new Donor(donorData);
     await donor.save();
-    
+
     // Create admin notification for new donor registration
     await createAdminNotification(
       'New Donor Registration',
@@ -306,7 +343,7 @@ app.post('/admin/donors', async (req, res) => {
       'success',
       { donorId: donor._id }
     );
-    
+
     res.status(201).json({
       success: true,
       message: 'Donor created successfully',
@@ -326,13 +363,13 @@ app.put('/admin/donors/:id', async (req, res) => {
   try {
     const Donor = require('./models/Donor');
     const bcrypt = require('bcryptjs');
-    
+
     const updateData = { ...req.body };
     if (updateData.email) updateData.email = updateData.email.toLowerCase();
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     }
-    
+
     const donor = await Donor.findByIdAndUpdate(
       req.params.id,
       updateData,
@@ -364,7 +401,7 @@ app.put('/admin/donors/:id', async (req, res) => {
 app.delete('/admin/donors/:id', async (req, res) => {
   try {
     const Donor = require('./models/Donor');
-    
+
     const donor = await Donor.findByIdAndDelete(req.params.id);
     if (!donor) {
       return res.status(404).json({
@@ -392,7 +429,7 @@ app.get('/admin/analytics/stats', async (req, res) => {
   try {
     console.log('Fetching admin analytics stats...');
     const BloodRequest = require('./models/BloodRequest');
-    
+
     // Use direct MongoDB connection for donation history
     const mongoose = require('mongoose');
     const db = mongoose.connection.db;
@@ -436,25 +473,25 @@ app.get('/admin/analytics/stats', async (req, res) => {
 app.get('/admin/analytics/donors-responded', async (req, res) => {
   try {
     console.log('=== Fetching donors responded count (public endpoint) ===');
-    
+
     // Use direct MongoDB connection to get completed donations
     const mongoose = require('mongoose');
     const db = mongoose.connection.db;
     const collection = db.collection('donationhistories');
-    
+
     const completedCount = await collection.countDocuments({ status: 'completed' });
     console.log('Completed donations count:', completedCount);
-    
-    res.json({ 
-      success: true, 
-      data: completedCount 
+
+    res.json({
+      success: true,
+      data: completedCount
     });
   } catch (error) {
     console.error('Error fetching donors responded:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Failed to fetch donors responded',
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -463,45 +500,45 @@ app.get('/admin/analytics/donors-responded', async (req, res) => {
 app.get('/admin/analytics/request-trends', async (req, res) => {
   try {
     const BloodRequest = require('./models/BloodRequest');
-    
+
     // Get time period from query parameter (default: weeks)
     const { period = 'weeks' } = req.query;
-    
+
     const now = new Date();
     let data = [];
-    
+
     if (period === 'weeks') {
       // Get current month's weeks
       const currentMonth = now.getMonth();
       const currentYear = now.getFullYear();
-      
+
       // Get first day of current month
       const monthStart = new Date(currentYear, currentMonth, 1);
-      
+
       // Calculate weeks in current month
       const weeks = [];
       let weekStart = new Date(monthStart);
       let weekNumber = 1;
-      
+
       while (weekStart.getMonth() === currentMonth) {
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
-        
+
         // If week goes into next month, limit to current month
         if (weekEnd.getMonth() !== currentMonth) {
           weekEnd.setMonth(currentMonth + 1, 0); // Last day of current month
         }
-        
+
         weeks.push({
           weekNumber,
           start: new Date(weekStart),
           end: new Date(weekEnd)
         });
-        
+
         weekStart.setDate(weekStart.getDate() + 7);
         weekNumber++;
       }
-      
+
       // Get data for each week
       data = await Promise.all(weeks.map(async (week) => {
         const count = await BloodRequest.countDocuments({
@@ -510,9 +547,9 @@ app.get('/admin/analytics/request-trends', async (req, res) => {
             $lte: week.end
           }
         });
-        
+
         console.log(`📊 Week ${week.weekNumber}: ${count} requests (${week.start.toLocaleDateString()} - ${week.end.toLocaleDateString()})`);
-        
+
         return {
           label: `Week ${week.weekNumber}`,
           value: count,
@@ -520,20 +557,20 @@ app.get('/admin/analytics/request-trends', async (req, res) => {
           dateRange: `${week.start.toLocaleDateString()} - ${week.end.toLocaleDateString()}`
         };
       }));
-      
+
     } else if (period === 'month') {
       // Last 6 months
       for (let i = 5; i >= 0; i--) {
         const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-        
+
         const count = await BloodRequest.countDocuments({
           createdAt: {
             $gte: monthStart,
             $lte: monthEnd
           }
         });
-        
+
         data.push({
           label: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
           value: count,
@@ -545,14 +582,14 @@ app.get('/admin/analytics/request-trends', async (req, res) => {
       for (let i = 5; i >= 0; i--) {
         const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-        
+
         const count = await BloodRequest.countDocuments({
           createdAt: {
             $gte: monthStart,
             $lte: monthEnd
           }
         });
-        
+
         data.push({
           label: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
           value: count,
@@ -564,14 +601,14 @@ app.get('/admin/analytics/request-trends', async (req, res) => {
       for (let i = 11; i >= 0; i--) {
         const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-        
+
         const count = await BloodRequest.countDocuments({
           createdAt: {
             $gte: monthStart,
             $lte: monthEnd
           }
         });
-        
+
         data.push({
           label: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
           value: count,
@@ -601,22 +638,22 @@ app.get('/admin/analytics/request-trends', async (req, res) => {
 app.get('/admin/analytics/donors-by-blood-type', async (req, res) => {
   try {
     console.log('=== Fetching donors by blood type (public endpoint) ===');
-    
+
     // Use direct MongoDB connection to ensure we get the right data
     const mongoose = require('mongoose');
     const db = mongoose.connection.db;
     const collection = db.collection('donationhistories');
-    
+
     const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
     const colors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
-    
+
     const data = await Promise.all(bloodTypes.map(async (bloodType, index) => {
       const count = await collection.countDocuments({
         donorBloodGroup: bloodType,
         status: 'completed' // lowercase to match your database
       });
       console.log(`Blood type ${bloodType}: ${count} completed donations`);
-      
+
       return {
         label: bloodType,
         value: count,
@@ -691,7 +728,7 @@ app.get('/admin/analytics/response-times-by-hour', async (req, res) => {
       if (response.requestId && response.responseTime) {
         const hour = new Date(response.responseTime).getHours();
         let timeSlot;
-        
+
         if (hour >= 6 && hour < 9) timeSlot = '6AM-9AM';
         else if (hour >= 9 && hour < 12) timeSlot = '9AM-12PM';
         else if (hour >= 12 && hour < 15) timeSlot = '12PM-3PM';
@@ -703,7 +740,7 @@ app.get('/admin/analytics/response-times-by-hour', async (req, res) => {
           const requestTime = new Date(response.requestId.createdAt);
           const responseTime = new Date(response.responseTime);
           const timeDiff = (responseTime - requestTime) / 1000; // seconds
-          
+
           if (timeDiff > 0) {
             hourlyResponseTimes[timeSlot].total += timeDiff;
             hourlyResponseTimes[timeSlot].count++;
@@ -724,7 +761,7 @@ app.get('/admin/analytics/response-times-by-hour', async (req, res) => {
 
     const responseTimeData = Object.keys(hourlyResponseTimes).map(timeSlot => ({
       label: timeSlot,
-      value: hourlyResponseTimes[timeSlot].count > 0 
+      value: hourlyResponseTimes[timeSlot].count > 0
         ? Math.round(hourlyResponseTimes[timeSlot].total / hourlyResponseTimes[timeSlot].count)
         : defaultTimes[timeSlot],
       color: '#2563eb'
@@ -749,7 +786,7 @@ app.get('/admin/notifications', async (req, res) => {
   try {
     console.log('Fetching admin notifications...');
     const Notification = require('./models/Notification');
-    
+
     // Get all notifications (admin sees all) sorted by creation date
     const notifications = await Notification.find({})
       .populate('hospitalId', 'name email')
@@ -766,9 +803,9 @@ app.get('/admin/notifications', async (req, res) => {
       type: notification.type,
       createdAt: notification.createdAt,
       read: notification.read,
-      category: notification.bloodRequestId ? 'blood-request' : 
-                notification.donorId ? 'donor' : 
-                notification.hospitalId ? 'hospital' : 'system',
+      category: notification.bloodRequestId ? 'blood-request' :
+        notification.donorId ? 'donor' :
+          notification.hospitalId ? 'hospital' : 'system',
       relatedData: {
         hospital: notification.hospitalId ? {
           id: notification.hospitalId._id,
@@ -905,10 +942,10 @@ app.post('/admin/notifications/create', async (req, res) => {
 app.post('/admin/notifications/seed', async (req, res) => {
   try {
     const Notification = require('./models/Notification');
-    
+
     // Clear existing notifications (optional - only for testing)
     // await Notification.deleteMany({});
-    
+
     const sampleNotifications = [
       {
         title: 'System Startup',
@@ -943,7 +980,7 @@ app.post('/admin/notifications/seed', async (req, res) => {
     ];
 
     const createdNotifications = await Notification.insertMany(sampleNotifications);
-    
+
     res.json({
       success: true,
       message: `Seeded ${createdNotifications.length} sample notifications`,
@@ -964,16 +1001,16 @@ app.post('/admin/hospitals', async (req, res) => {
   try {
     const Hospital = require('./models/Hospital');
     const bcrypt = require('bcryptjs');
-    
+
     const hospitalData = { ...req.body };
     if (hospitalData.email) hospitalData.email = hospitalData.email.toLowerCase();
     if (hospitalData.password) {
       hospitalData.password = await bcrypt.hash(hospitalData.password, 10);
     }
-    
+
     const hospital = new Hospital(hospitalData);
     await hospital.save();
-    
+
     // Create admin notification for new hospital registration
     await createAdminNotification(
       'New Hospital Registration',
@@ -981,7 +1018,7 @@ app.post('/admin/hospitals', async (req, res) => {
       'success',
       { hospitalId: hospital._id }
     );
-    
+
     res.status(201).json({
       success: true,
       message: 'Hospital created successfully',
@@ -1001,13 +1038,13 @@ app.put('/admin/hospitals/:id', async (req, res) => {
   try {
     const Hospital = require('./models/Hospital');
     const bcrypt = require('bcryptjs');
-    
+
     const updateData = { ...req.body };
     if (updateData.email) updateData.email = updateData.email.toLowerCase();
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     }
-    
+
     const hospital = await Hospital.findByIdAndUpdate(
       req.params.id,
       updateData,
@@ -1039,7 +1076,7 @@ app.put('/admin/hospitals/:id', async (req, res) => {
 app.delete('/admin/hospitals/:id', async (req, res) => {
   try {
     const Hospital = require('./models/Hospital');
-    
+
     const hospital = await Hospital.findByIdAndDelete(req.params.id);
     if (!hospital) {
       return res.status(404).json({
@@ -1112,7 +1149,7 @@ app.post('/notifications/:hospitalId/read-all', async (req, res) => {
 app.post('/notifications/:hospitalId/test', async (req, res) => {
   try {
     const { hospitalId } = req.params;
-    const { type='info', title='Test Notification', message='Test message' } = req.body || {};
+    const { type = 'info', title = 'Test Notification', message = 'Test message' } = req.body || {};
     let doc;
     if (mongoose.Types.ObjectId.isValid(hospitalId)) {
       doc = await Notification.create({ hospitalId, type, title, message });
@@ -1140,6 +1177,18 @@ app.get('/notifications/stream/:hospitalId', (req, res) => {
   addNotificationClient(hospitalId, res);
 });
 
+// Debug endpoint to check SSE connections
+app.get('/notifications/debug/connections', (req, res) => {
+  const { getConnectedClients } = require('./utils/notificationStream');
+  const connections = getConnectedClients ? getConnectedClients() : { error: 'Function not available' };
+  res.json({
+    success: true,
+    totalHospitals: connections.size || 0,
+    hospitals: connections.hospitals || [],
+    timestamp: new Date()
+  });
+});
+
 // Bulk import donors (CSV parsed client-side -> JSON). Public for now; should add auth later.
 app.post('/admin/donors/import', async (req, res) => {
   try {
@@ -1152,22 +1201,22 @@ app.post('/admin/donors/import', async (req, res) => {
     }
     console.log(`Processing ${donors.length} donor rows`);
 
-    const allowedBloodGroups = new Set(['A+','A-','B+','B-','AB+','AB-','O+','O-','NK']);
+    const allowedBloodGroups = new Set(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'NK']);
     const normalizeBloodGroup = (value) => {
       if (!value) return '';
-      return String(value).toUpperCase().replace(/\s+/g,'').trim(); // remove internal spaces e.g. 'AB +' -> 'AB+'
+      return String(value).toUpperCase().replace(/\s+/g, '').trim(); // remove internal spaces e.g. 'AB +' -> 'AB+'
     };
 
     // Helper to sanitize a header/key for matching
-    const sanitizeKey = (k='') => k.replace(/\uFEFF/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const sanitizeKey = (k = '') => k.replace(/\uFEFF/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     // Variants map (normalized -> canonical field name)
     const variantGroups = {
-      name: ['name','fullname','donorname','studentname'],
-      email: ['email','mail','emailid','e'],
-      phone: ['phone','phoneno','mobileno','mobile','contact','contactno','number','phoneNumber'.toLowerCase()],
-      bloodGroup: ['bloodgroup','bloodgrp','blood','bgroup','bloodtype','bloodgrpup'],
-      rollNo: ['rollno','rollnumber','roll','enrollment','enrollmentno','enroll','studentid','id','studentnumber']
+      name: ['name', 'fullname', 'donorname', 'studentname'],
+      email: ['email', 'mail', 'emailid', 'e'],
+      phone: ['phone', 'phoneno', 'mobileno', 'mobile', 'contact', 'contactno', 'number', 'phoneNumber'.toLowerCase()],
+      bloodGroup: ['bloodgroup', 'bloodgrp', 'blood', 'bgroup', 'bloodtype', 'bloodgrpup'],
+      rollNo: ['rollno', 'rollnumber', 'roll', 'enrollment', 'enrollmentno', 'enroll', 'studentid', 'id', 'studentnumber']
     };
 
     // Build reverse lookup: normalized variant -> canonical
@@ -1180,18 +1229,18 @@ app.post('/admin/donors/import', async (req, res) => {
     const credentials = [];
     let inserted = 0;
     let skipped = 0;
-  // Preload existing donors for duplicate detection
-  const existingDocs = await Donor.find({}, 'email name bloodGroup phone rollNo').lean();
-  const normName = (v='') => String(v).toLowerCase().trim().replace(/\s+/g,' ');
-  const existingEmails = new Set(existingDocs.map(d => d.email));
-  const existingNameGroup = new Set(existingDocs.map(d => `${normName(d.name)}|${normalizeBloodGroup(d.bloodGroup)}`));
-  const existingPhones = new Set(existingDocs.filter(d=>d.phone).map(d=>String(d.phone).trim()));
-  const existingRolls = new Set(existingDocs.filter(d=>d.rollNo).map(d=>String(d.rollNo).trim().toLowerCase()));
-  // Track duplicates inside this import batch
-  const batchEmails = new Set();
-  const batchNameGroup = new Set();
-  const batchPhones = new Set();
-  const batchRolls = new Set();
+    // Preload existing donors for duplicate detection
+    const existingDocs = await Donor.find({}, 'email name bloodGroup phone rollNo').lean();
+    const normName = (v = '') => String(v).toLowerCase().trim().replace(/\s+/g, ' ');
+    const existingEmails = new Set(existingDocs.map(d => d.email));
+    const existingNameGroup = new Set(existingDocs.map(d => `${normName(d.name)}|${normalizeBloodGroup(d.bloodGroup)}`));
+    const existingPhones = new Set(existingDocs.filter(d => d.phone).map(d => String(d.phone).trim()));
+    const existingRolls = new Set(existingDocs.filter(d => d.rollNo).map(d => String(d.rollNo).trim().toLowerCase()));
+    // Track duplicates inside this import batch
+    const batchEmails = new Set();
+    const batchNameGroup = new Set();
+    const batchPhones = new Set();
+    const batchRolls = new Set();
     for (let i = 0; i < donors.length; i++) {
       const rawOriginal = donors[i] || {};
       // Map row keys using sanitization
@@ -1203,7 +1252,7 @@ app.post('/admin/donors/import', async (req, res) => {
           if (mapped[canonical] === undefined) mapped[canonical] = rawOriginal[k];
         } else {
           // If header already exactly matches expected canonical (after sanitize) keep it
-          if (['name','email','phone','bloodGroup','rollNo'].includes(k)) mapped[k] = rawOriginal[k];
+          if (['name', 'email', 'phone', 'bloodGroup', 'rollNo'].includes(k)) mapped[k] = rawOriginal[k];
         }
       });
 
@@ -1225,25 +1274,25 @@ app.post('/admin/donors/import', async (req, res) => {
         results.push({ ...lineInfo, status: 'error', reason: `Invalid blood group: ${bloodGroup}` });
         skipped++; continue;
       }
-  const nameGroupKey = `${normName(nameRaw)}|${bloodGroup}`;
-  const phoneKey = phoneRaw ? String(phoneRaw).trim() : '';
-  const rollKey = rollNoRaw ? String(rollNoRaw).trim().toLowerCase() : '';
+      const nameGroupKey = `${normName(nameRaw)}|${bloodGroup}`;
+      const phoneKey = phoneRaw ? String(phoneRaw).trim() : '';
+      const rollKey = rollNoRaw ? String(rollNoRaw).trim().toLowerCase() : '';
 
-  // Existing DB duplicates
-  if (existingEmails.has(email)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (email exists)' }); skipped++; continue; }
-  if (existingNameGroup.has(nameGroupKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (name+bloodGroup exists)' }); skipped++; continue; }
-  if (phoneKey && existingPhones.has(phoneKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (phone exists)' }); skipped++; continue; }
-  if (rollKey && existingRolls.has(rollKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (rollNo exists)' }); skipped++; continue; }
+      // Existing DB duplicates
+      if (existingEmails.has(email)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (email exists)' }); skipped++; continue; }
+      if (existingNameGroup.has(nameGroupKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (name+bloodGroup exists)' }); skipped++; continue; }
+      if (phoneKey && existingPhones.has(phoneKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (phone exists)' }); skipped++; continue; }
+      if (rollKey && existingRolls.has(rollKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate (rollNo exists)' }); skipped++; continue; }
 
-  // Duplicates within current file
-  if (batchEmails.has(email)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (email)' }); skipped++; continue; }
-  if (batchNameGroup.has(nameGroupKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (name+bloodGroup)' }); skipped++; continue; }
-  if (phoneKey && batchPhones.has(phoneKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (phone)' }); skipped++; continue; }
-  if (rollKey && batchRolls.has(rollKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (rollNo)' }); skipped++; continue; }
+      // Duplicates within current file
+      if (batchEmails.has(email)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (email)' }); skipped++; continue; }
+      if (batchNameGroup.has(nameGroupKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (name+bloodGroup)' }); skipped++; continue; }
+      if (phoneKey && batchPhones.has(phoneKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (phone)' }); skipped++; continue; }
+      if (rollKey && batchRolls.has(rollKey)) { results.push({ ...lineInfo, status: 'skipped', reason: 'Duplicate in file (rollNo)' }); skipped++; continue; }
 
-  // Reserve keys now that row is accepted
-  batchEmails.add(email); batchNameGroup.add(nameGroupKey);
-  if (phoneKey) batchPhones.add(phoneKey); if (rollKey) batchRolls.add(rollKey);
+      // Reserve keys now that row is accepted
+      batchEmails.add(email); batchNameGroup.add(nameGroupKey);
+      if (phoneKey) batchPhones.add(phoneKey); if (rollKey) batchRolls.add(rollKey);
       const tempPassword = Math.random().toString(36).slice(-8);
       const hashed = await bcrypt.hash(tempPassword, 10);
       const donorDoc = new Donor({
@@ -1289,7 +1338,7 @@ app.delete('/admin/donors', async (req, res) => {
     if (all) {
       const count = await Donor.countDocuments();
       await Donor.deleteMany({});
-  const payload = { success: true, deleted: count, all: true };
+      const payload = { success: true, deleted: count, all: true };
       try {
         const notif = await Notification.create({
           type: 'warning',
@@ -1298,12 +1347,12 @@ app.delete('/admin/donors', async (req, res) => {
           read: false
         });
         broadcastNotification(notif);
-      } catch(e){ console.error('Broadcast delete all donors failed', e);}
+      } catch (e) { console.error('Broadcast delete all donors failed', e); }
       return res.json(payload);
     }
     if (Array.isArray(ids) && ids.length) {
       const result = await Donor.deleteMany({ _id: { $in: ids } });
-  const deleted = result.deletedCount || 0;
+      const deleted = result.deletedCount || 0;
       try {
         const notif = await Notification.create({
           type: 'warning',
@@ -1312,7 +1361,7 @@ app.delete('/admin/donors', async (req, res) => {
           read: false
         });
         broadcastNotification(notif);
-      } catch(e){ console.error('Broadcast delete selected donors failed', e);}
+      } catch (e) { console.error('Broadcast delete selected donors failed', e); }
       return res.json({ success: true, deleted, all: false });
     }
     return res.status(400).json({ success: false, message: 'Provide all:true or ids array' });
@@ -1352,8 +1401,8 @@ app.post('/register', async (req, res) => {
     // Check if MongoDB is connected
     if (mongoose.connection.readyState !== 1) {
       console.log("MongoDB not connected. Connection state:", mongoose.connection.readyState);
-      return res.status(503).json({ 
-        message: 'Database service temporarily unavailable. Please try again in a few moments.' 
+      return res.status(503).json({
+        message: 'Database service temporarily unavailable. Please try again in a few moments.'
       });
     }
 
@@ -1362,17 +1411,17 @@ app.post('/register', async (req, res) => {
     // Check if user already exists
     const existingHospital = await Hospital.findOne({ email }).maxTimeMS(10000);
     const existingAdmin = await Admin.findOne({ email }).maxTimeMS(10000);
-    
+
     if (existingHospital || existingAdmin) {
       return res.status(409).json({ message: 'User already exists' });
     }
 
     // Generate OTP
     const otp = generateOTP();
-    
+
     // Delete any existing OTPs for this email (registration type)
     await OTP.deleteMany({ email, type: 'registration' });
-    
+
     // Save OTP to database
     await OTP.create({
       email,
@@ -1384,25 +1433,25 @@ app.post('/register', async (req, res) => {
     try {
       await sendRegistrationOTP(email, otp, name);
       console.log('✅ Registration OTP sent successfully to:', email);
-      
-      res.status(200).json({ 
+
+      res.status(200).json({
         success: true,
         message: 'OTP sent to your email. Please verify to complete registration.',
-        email 
+        email
       });
     } catch (emailError) {
       console.error('❌ Failed to send email:', emailError);
       // Clean up OTP if email fails
       await OTP.deleteMany({ email, type: 'registration' });
-      res.status(500).json({ 
-        message: 'Failed to send verification email. Please check your email address and try again.' 
+      res.status(500).json({
+        message: 'Failed to send verification email. Please check your email address and try again.'
       });
     }
   } catch (err) {
     console.error("Registration error:", err);
     if (err.name === 'MongooseError' || err.name === 'MongoNetworkError') {
-      res.status(503).json({ 
-        message: "Database connection issue. Please check your internet connection and try again." 
+      res.status(503).json({
+        message: "Database connection issue. Please check your internet connection and try again."
       });
     } else {
       res.status(500).json({ message: "Registration failed. Please try again." });
@@ -1424,10 +1473,10 @@ app.post('/verify-registration', async (req, res) => {
     const emailLower = email.toLowerCase();
 
     // Find the OTP
-    const otpRecord = await OTP.findOne({ 
-      email: emailLower, 
+    const otpRecord = await OTP.findOne({
+      email: emailLower,
       type: 'registration',
-      verified: false 
+      verified: false
     }).sort({ createdAt: -1 });
 
     if (!otpRecord) {
@@ -1441,7 +1490,7 @@ app.post('/verify-registration', async (req, res) => {
     // Check if user already exists (double check)
     const existingHospital = await Hospital.findOne({ email: emailLower });
     const existingAdmin = await Admin.findOne({ email: emailLower });
-    
+
     if (existingHospital || existingAdmin) {
       await OTP.deleteMany({ email: emailLower, type: 'registration' });
       return res.status(409).json({ message: 'User already exists' });
@@ -1449,9 +1498,9 @@ app.post('/verify-registration', async (req, res) => {
 
     // Create the hospital account
     const hashedPassword = await bcrypt.hash(password, 10);
-    const hospital = new Hospital({ 
-      email: emailLower, 
-      password: hashedPassword, 
+    const hospital = new Hospital({
+      email: emailLower,
+      password: hashedPassword,
       name,
       isVerified: true,
       status: 'active'
@@ -1463,9 +1512,9 @@ app.post('/verify-registration', async (req, res) => {
 
     console.log('✅ Hospital registered and verified:', emailLower);
 
-    res.status(201).json({ 
+    res.status(201).json({
       success: true,
-      message: 'Registration successful! You can now log in.' 
+      message: 'Registration successful! You can now log in.'
     });
   } catch (err) {
     console.error("Verification error:", err);
@@ -1494,10 +1543,10 @@ app.post('/resend-otp', async (req, res) => {
 
     // Generate new OTP
     const otp = generateOTP();
-    
+
     // Delete old OTPs
     await OTP.deleteMany({ email: emailLower, type: 'registration' });
-    
+
     // Save new OTP
     await OTP.create({
       email: emailLower,
@@ -1508,9 +1557,9 @@ app.post('/resend-otp', async (req, res) => {
     // Send OTP email
     await sendRegistrationOTP(emailLower, otp, name);
 
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
-      message: 'New OTP sent to your email.' 
+      message: 'New OTP sent to your email.'
     });
   } catch (err) {
     console.error("Resend OTP error:", err);
@@ -1529,15 +1578,15 @@ app.post('/login', async (req, res) => {
     // Check if MongoDB is connected
     if (mongoose.connection.readyState !== 1) {
       console.log("MongoDB not connected. Connection state:", mongoose.connection.readyState);
-      return res.status(503).json({ 
-        message: 'Database service temporarily unavailable. Please try again in a few moments.' 
+      return res.status(503).json({
+        message: 'Database service temporarily unavailable. Please try again in a few moments.'
       });
     }
 
     // Check both Admin and Hospital collections to determine role automatically
     let user = await Admin.findOne({ email }).maxTimeMS(10000);
     let role = 'admin';
-    
+
     if (!user) {
       user = await Hospital.findOne({ email }).maxTimeMS(10000);
       role = 'hospital';
@@ -1562,8 +1611,8 @@ app.post('/login', async (req, res) => {
   } catch (err) {
     console.error("Login error:", err);
     if (err.name === 'MongooseError' || err.name === 'MongoNetworkError') {
-      res.status(503).json({ 
-        message: "Database connection issue. Please check your internet connection and try again." 
+      res.status(503).json({
+        message: "Database connection issue. Please check your internet connection and try again."
       });
     } else {
       res.status(500).json({ message: "Login failed. Please try again." });
@@ -1587,7 +1636,7 @@ app.post('/forgot-password', async (req, res) => {
     // Find user in Hospital or Admin collection
     let user = await Hospital.findOne({ email: emailLower });
     let userName = user?.name;
-    
+
     if (!user) {
       user = await Admin.findOne({ email: emailLower });
       userName = user?.name;
@@ -1595,18 +1644,18 @@ app.post('/forgot-password', async (req, res) => {
 
     if (!user) {
       // Don't reveal if email exists or not for security
-      return res.status(200).json({ 
+      return res.status(200).json({
         success: true,
-        message: 'If your email is registered, you will receive a password reset OTP.' 
+        message: 'If your email is registered, you will receive a password reset OTP.'
       });
     }
 
     // Generate OTP
     const otp = generateOTP();
-    
+
     // Delete any existing password reset OTPs for this email
     await OTP.deleteMany({ email: emailLower, type: 'password-reset' });
-    
+
     // Save OTP to database
     await OTP.create({
       email: emailLower,
@@ -1618,17 +1667,17 @@ app.post('/forgot-password', async (req, res) => {
     try {
       await sendPasswordResetOTP(emailLower, otp, userName);
       console.log('✅ Password reset OTP sent to:', emailLower);
-      
-      res.status(200).json({ 
+
+      res.status(200).json({
         success: true,
         message: 'Password reset OTP sent to your email.',
-        email: emailLower 
+        email: emailLower
       });
     } catch (emailError) {
       console.error('❌ Failed to send password reset email:', emailError);
       await OTP.deleteMany({ email: emailLower, type: 'password-reset' });
-      res.status(500).json({ 
-        message: 'Failed to send password reset email. Please try again.' 
+      res.status(500).json({
+        message: 'Failed to send password reset email. Please try again.'
       });
     }
   } catch (err) {
@@ -1651,10 +1700,10 @@ app.post('/verify-reset-otp', async (req, res) => {
     const emailLower = email.toLowerCase();
 
     // Find the OTP
-    const otpRecord = await OTP.findOne({ 
-      email: emailLower, 
+    const otpRecord = await OTP.findOne({
+      email: emailLower,
       type: 'password-reset',
-      verified: false 
+      verified: false
     }).sort({ createdAt: -1 });
 
     if (!otpRecord) {
@@ -1669,9 +1718,9 @@ app.post('/verify-reset-otp', async (req, res) => {
     otpRecord.verified = true;
     await otpRecord.save();
 
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
-      message: 'OTP verified successfully. You can now reset your password.' 
+      message: 'OTP verified successfully. You can now reset your password.'
     });
   } catch (err) {
     console.error("OTP verification error:", err);
@@ -1693,10 +1742,10 @@ app.post('/reset-password', async (req, res) => {
     const emailLower = email.toLowerCase();
 
     // Find the verified OTP
-    const otpRecord = await OTP.findOne({ 
-      email: emailLower, 
+    const otpRecord = await OTP.findOne({
+      email: emailLower,
       type: 'password-reset',
-      verified: true 
+      verified: true
     }).sort({ createdAt: -1 });
 
     if (!otpRecord) {
@@ -1710,7 +1759,7 @@ app.post('/reset-password', async (req, res) => {
     // Find user and update password
     let user = await Hospital.findOne({ email: emailLower });
     let role = 'hospital';
-    
+
     if (!user) {
       user = await Admin.findOne({ email: emailLower });
       role = 'admin';
@@ -1730,9 +1779,9 @@ app.post('/reset-password', async (req, res) => {
 
     console.log('✅ Password reset successfully for:', emailLower);
 
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
-      message: 'Password reset successfully. You can now log in with your new password.' 
+      message: 'Password reset successfully. You can now log in with your new password.'
     });
   } catch (err) {
     console.error("Password reset error:", err);
@@ -1762,10 +1811,10 @@ app.get('/hospital/profile', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching hospital profile:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: 'Failed to fetch hospital profile',
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -1778,7 +1827,7 @@ app.put('/hospital/profile', authenticateToken, async (req, res) => {
     }
 
     const { name, email, phone, address, emergencyContact, radius } = req.body;
-    
+
     const hospital = await Hospital.findByIdAndUpdate(
       req.user.id,
       { name, email, phone, address, emergencyContact, radius },
@@ -1796,10 +1845,10 @@ app.put('/hospital/profile', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating hospital profile:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: 'Failed to update hospital profile',
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -1808,14 +1857,14 @@ app.put('/hospital/profile', authenticateToken, async (req, res) => {
 app.put('/hospital/update-password', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'hospital') {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        message: 'Access denied. Hospital role required.' 
+        message: 'Access denied. Hospital role required.'
       });
     }
 
     const { currentPassword, newPassword } = req.body;
-    
+
     // Validation
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
@@ -1882,16 +1931,16 @@ app.get('/hospital/dashboard/stats', authenticateToken, async (req, res) => {
 
     const BloodRequest = require('./models/BloodRequest');
     const Donor = require('./models/Donor');
-    
+
     // Get active blood requests for this hospital
-    const activeRequests = await BloodRequest.countDocuments({ 
+    const activeRequests = await BloodRequest.countDocuments({
       requesterId: req.user.id,
       status: { $in: ['pending', 'processing'] }
     });
 
     // Get total donors (you can filter by location later)
-    const availableDonors = await Donor.countDocuments({ 
-      status: 'available' 
+    const availableDonors = await Donor.countDocuments({
+      status: 'available'
     });
 
     // Get completed requests this month
@@ -1917,10 +1966,10 @@ app.get('/hospital/dashboard/stats', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: 'Failed to fetch dashboard stats',
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -1933,13 +1982,13 @@ app.get('/hospital/dashboard/recent-requests', authenticateToken, async (req, re
     }
 
     const BloodRequest = require('./models/BloodRequest');
-    
-    const recentRequests = await BloodRequest.find({ 
-      requesterId: req.user.id 
+
+    const recentRequests = await BloodRequest.find({
+      requesterId: req.user.id
     })
-    .sort({ createdAt: -1 })
-    .limit(5)
-    .select('bloodGroup units urgency status createdAt');
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('bloodGroup units urgency status createdAt');
 
     res.json({
       success: true,
@@ -1947,10 +1996,10 @@ app.get('/hospital/dashboard/recent-requests', authenticateToken, async (req, re
     });
   } catch (error) {
     console.error('Error fetching recent requests:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: 'Failed to fetch recent requests',
-      error: error.message 
+      error: error.message
     });
   }
 });

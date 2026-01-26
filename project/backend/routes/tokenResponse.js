@@ -10,10 +10,10 @@ const DonorLocationResponse = require('../models/DonorLocationResponse');
 router.get('/r/:token', async (req, res) => {
   try {
     const { token } = req.params;
-    
+
     // Find the token first without population
     const responseToken = await ResponseToken.findOne({ token, isUsed: false });
-    
+
     if (!responseToken) {
       return res.status(404).json({
         success: false,
@@ -24,7 +24,7 @@ router.get('/r/:token', async (req, res) => {
     // Get request and donor details separately
     const request = await BloodRequest.findById(responseToken.requestId);
     const donor = await Donor.findById(responseToken.donorId);
-    
+
     // Return token details for frontend
     res.json({
       success: true,
@@ -34,7 +34,7 @@ router.get('/r/:token', async (req, res) => {
         donor: donor
       }
     });
-    
+
   } catch (error) {
     console.error('Error fetching token:', error);
     res.status(500).json({
@@ -49,17 +49,17 @@ router.post('/r/:token/respond', async (req, res) => {
   try {
     const { token } = req.params;
     const { latitude, longitude, isAvailable, address } = req.body;
-    
+
     // Find and validate token without population
     const responseToken = await ResponseToken.findOne({ token, isUsed: false });
-    
+
     if (!responseToken) {
       return res.status(404).json({
         success: false,
         message: 'Invalid or expired response link'
       });
     }
-    
+
     // Get donor information
     const donor = await Donor.findById(responseToken.donorId);
     if (!donor) {
@@ -68,7 +68,7 @@ router.post('/r/:token/respond', async (req, res) => {
         message: 'Donor not found'
       });
     }
-    
+
     // Save to locations collection instead of donorresponses
     const locationData = {
       address: address || `${donor.name} - Response Location`,
@@ -76,7 +76,7 @@ router.post('/r/:token/respond', async (req, res) => {
       longitude: parseFloat(longitude),
       accuracy: 0, // Default accuracy
       userName: donor.name,
-      rollNumber: donor.rollNumber || '', 
+      rollNumber: donor.rollNumber || '',
       mobileNumber: donor.phone,
       timestamp: new Date(),
       // Additional fields for blood request tracking
@@ -86,19 +86,19 @@ router.post('/r/:token/respond', async (req, res) => {
       isAvailable: isAvailable !== false,
       responseTime: new Date()
     };
-    
+
     console.log('Attempting to save to locations collection:', locationData);
-    
+
     // Save directly to locations collection
     const result = await mongoose.connection.db.collection('locations').insertOne(locationData);
     console.log('✅ Location response saved successfully to locations collection');
-    
+
     // Mark token as used
     responseToken.isUsed = true;
     await responseToken.save();
-    
+
     console.log(`✅ Location response saved for donor ${donor.name} at ${latitude}, ${longitude}`);
-    
+
     res.json({
       success: true,
       message: 'Response recorded successfully',
@@ -113,12 +113,12 @@ router.post('/r/:token/respond', async (req, res) => {
         locationId: result.insertedId
       }
     });
-    
+
   } catch (error) {
     console.error('Error recording response:', error);
     console.error('Error details:', error.message);
     console.error('Stack trace:', error.stack);
-    
+
     // Return specific error details for debugging
     res.status(500).json({
       success: false,

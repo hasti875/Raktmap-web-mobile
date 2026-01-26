@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import axios from "axios";
 
 // Update this URL to match your backend server
-axios.defaults.baseURL = "http://localhost:5000"; // Backend is running on port 5000
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000"; // Backend URL from environment
 
 // Configure axios interceptor for automatic token attachment
 axios.interceptors.request.use(
@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initAuth = () => {
       console.log("🚀 AuthProvider initializing...");
       const token = localStorage.getItem("token");
-      
+
       if (!token) {
         console.log("❌ No token found - user not authenticated");
         setUser(null);
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log("✅ Token found in localStorage");
-      
+
       try {
         // Simple JWT decode without server validation
         const parts = token.split('.');
@@ -88,10 +88,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
         const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
         const payload = JSON.parse(atob(padded));
-        
+
         console.log("✅ Token decoded successfully:", {
           id: payload.id,
-          email: payload.email, 
+          email: payload.email,
           role: payload.role,
           exp: payload.exp
         });
@@ -121,14 +121,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(userData);
         axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
         console.log("✅ Authentication restored successfully!");
-        
+
       } catch (error) {
         console.error("❌ Token validation failed:", error);
         localStorage.removeItem("token");
         delete axios.defaults.headers.common["Authorization"];
         setUser(null);
       }
-      
+
       setLoading(false);
     };
 
@@ -161,41 +161,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Decode token to get user ID and validate structure
       let userId = null;
       let tokenPayload = null;
-      
+
       try {
         const tokenParts = token.split('.');
         if (tokenParts.length !== 3) {
           throw new Error('Invalid token format');
         }
-        
+
         // Add padding if necessary for Base64 decoding
         let base64Payload = tokenParts[1];
         while (base64Payload.length % 4) {
           base64Payload += '=';
         }
-        
+
         tokenPayload = JSON.parse(atob(base64Payload));
         userId = tokenPayload.id;
         console.log("Decoded token payload:", tokenPayload);
-        
+
       } catch (e) {
         console.error("Could not decode token:", e);
         return false;
       }
 
-      const userData = { 
+      const userData = {
         _id: userId,
-        email: tokenPayload.email || email, 
-        role: responseRole, 
-        name: tokenPayload.name || name 
+        email: tokenPayload.email || email,
+        role: responseRole,
+        name: tokenPayload.name || name
       };
-      
+
       console.log("Setting user data:", userData);
-      
+
       localStorage.setItem("token", token);
       axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
       setUser(userData);
-      
+
       console.log("Login successful");
       return true;
     } catch (error) {
@@ -217,7 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("Starting logout process...");
       setLoadingLogout(true);
       setUserName(user?.name);
-      
+
       // Clear all local state
       console.log("Clearing localStorage and session storage...");
       localStorage.removeItem("token");
@@ -227,10 +227,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Reset axios configuration
       console.log("Resetting axios configuration...");
       delete axios.defaults.headers.common["Authorization"];
-      axios.defaults.baseURL = "http://localhost:5000";
+      axios.defaults.baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
       console.log("Logout process completed");
-      
+
       // Use window.location.replace to prevent back navigation after logout
       setTimeout(() => {
         setLoadingLogout(false);
