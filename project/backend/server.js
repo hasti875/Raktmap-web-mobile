@@ -42,32 +42,12 @@ const createAdminNotification = async (title, message, type = 'info', relatedDat
 };
 
 const app = express();
-
-// CORS configuration with dynamic origin validation
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'https://donor-location-tracker.onrender.com'
-];
-
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    // Check if origin is in allowed list
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-
-    // Allow all Vercel deployment URLs
-    if (origin.endsWith('.vercel.app')) {
-      return callback(null, true);
-    }
-
-    // Reject other origins
-    callback(new Error('Not allowed by CORS'));
-  },
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://donor-location-tracker.onrender.com'
+  ],
   credentials: true
 }));
 // Increase JSON limit to support larger bulk imports

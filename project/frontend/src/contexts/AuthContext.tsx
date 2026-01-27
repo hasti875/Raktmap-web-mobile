@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import axios from "axios";
 
 // Update this URL to match your backend server
-axios.defaults.baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000"; // Backend URL from environment
+axios.defaults.baseURL = "http://localhost:5000"; // Backend is running on port 5000
 
 // Configure axios interceptor for automatic token attachment
 axios.interceptors.request.use(
@@ -227,7 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Reset axios configuration
       console.log("Resetting axios configuration...");
       delete axios.defaults.headers.common["Authorization"];
-      axios.defaults.baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+      axios.defaults.baseURL = "http://localhost:5000";
 
       console.log("Logout process completed");
 
