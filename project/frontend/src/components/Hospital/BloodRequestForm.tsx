@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useAuth } from '../../contexts/AuthContext';
 
-export function BloodRequestForm() {
+export function BloodRequestForm({ onSuccess }: { onSuccess?: () => void }) {
   const { user } = useAuth();
   const [formData, setFormData] = useState({
     bloodGroup: '',
@@ -65,6 +65,13 @@ export function BloodRequestForm() {
           patientAge: '',
           patientCondition: ''
         });
+        
+        // Navigate back to dashboard after a short delay
+        setTimeout(() => {
+          if (onSuccess) {
+            onSuccess();
+          }
+        }, 2000);
       } else {
         toast.error(response.data.message || 'Failed to submit blood request');
       }

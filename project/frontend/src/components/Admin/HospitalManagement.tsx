@@ -29,7 +29,8 @@ export function HospitalManagement() {
       setLoading(true);
       setError(null);
       console.log('Fetching hospitals from database...');
-      const response = await axios.get('/admin/hospitals');
+      // Use the dedicated hospitals router
+      const response = await axios.get('/hospitals');
       if (response.data.success) {
         setHospitals(response.data.hospitals);
         console.log('Fetched hospitals:', response.data.hospitals.length);
@@ -90,7 +91,7 @@ export function HospitalManagement() {
     e.preventDefault();
     try {
       setError(null); // Clear any previous errors
-      const response = await axios.post('/admin/hospitals', formData);
+      const response = await axios.post('/hospitals', formData);
       if (response.data.success) {
         await fetchHospitals();
         setIsModalOpen(false);
@@ -106,11 +107,11 @@ export function HospitalManagement() {
   const handleUpdateHospital = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedHospital) return;
-    
+
     try {
       setError(null); // Clear any previous errors
       const hospitalId = selectedHospital._id || selectedHospital.id;
-      const response = await axios.put(`/admin/hospitals/${hospitalId}`, formData);
+      const response = await axios.put(`/hospitals/${hospitalId}`, formData);
       if (response.data.success) {
         await fetchHospitals();
         setIsModalOpen(false);
@@ -125,16 +126,36 @@ export function HospitalManagement() {
   // Delete hospital
   const handleDeleteHospital = async (hospitalId: string) => {
     if (!confirm('Are you sure you want to delete this hospital?')) return;
-    
+
     try {
       setError(null); // Clear any previous errors
-      const response = await axios.delete(`/admin/hospitals/${hospitalId}`);
+      const response = await axios.delete(`/hospitals/${hospitalId}`);
       if (response.data.success) {
         await fetchHospitals();
       }
     } catch (err: any) {
       console.error('Error deleting hospital:', err);
       setError(err.response?.data?.message || 'Failed to delete hospital');
+    }
+  };
+
+  // Approve/Reject Hospital
+  const handleApproveHospital = async (hospitalId: string, isApproved: boolean) => {
+    try {
+      if (!hospitalId) {
+        setError('Invalid hospital ID');
+        return;
+      }
+      setError(null);
+      const strId = hospitalId.toString();
+      const response = await axios.put(`/hospitals/${strId}/approve`, { isApproved });
+
+      if (response.data.success) {
+        await fetchHospitals();
+      }
+    } catch (err: any) {
+      console.error('Error approving hospital:', err);
+      setError(err.response?.data?.message || 'Failed to update hospital status');
     }
   };
 
@@ -171,11 +192,15 @@ export function HospitalManagement() {
     {
       key: 'status' as keyof Hospital,
       label: 'Status',
-      render: (status: string) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(status)}`}>
-          {getStatusIcon(status)}
-          <span className="ml-1 capitalize">{status}</span>
-        </span>
+      render: (status: string, hospital: any) => (
+        <div className="flex flex-col">
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium w-fit ${getStatusColor(status)}`}>
+            {getStatusIcon(status)}
+            <span className="ml-1 capitalize">{status}</span>
+          </span>
+          {hospital.isVerified && <span className="text-[10px] text-green-600 mt-1">Verified</span>}
+          {!hospital.isVerified && status !== 'pending' && <span className="text-[10px] text-gray-500 mt-1">Unverified</span>}
+        </div>
       ),
     },
     {
@@ -183,32 +208,53 @@ export function HospitalManagement() {
       label: 'Actions',
       render: (_: any, hospital: Hospital) => (
         <div className="flex space-x-2">
-          <button
-            onClick={() => {
-              setSelectedHospital(hospital);
-              setModalType('view');
-              setIsModalOpen(true);
-            }}
-            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => {
-              setSelectedHospital(hospital);
-              setModalType('edit');
-              setIsModalOpen(true);
-            }}
-            className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
-          >
-            <Edit className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => handleDeleteHospital(hospital._id || hospital.id)}
-            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {hospital.status === 'pending' ? (
+            <>
+              <button
+                onClick={() => handleApproveHospital(hospital._id || hospital.id || '', true)}
+                className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                title="Approve Hospital"
+              >
+                <CheckCircle className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => handleApproveHospital(hospital._id || hospital.id || '', false)}
+                className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                title="Reject/Suspend Hospital"
+              >
+                <XCircle className="h-5 w-5" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setSelectedHospital(hospital);
+                  setModalType('view');
+                  setIsModalOpen(true);
+                }}
+                className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                <Eye className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedHospital(hospital);
+                  setModalType('edit');
+                  setIsModalOpen(true);
+                }}
+                className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+              >
+                <Edit className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => handleDeleteHospital(hospital._id || hospital.id || '')}
+                className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
       ),
     },

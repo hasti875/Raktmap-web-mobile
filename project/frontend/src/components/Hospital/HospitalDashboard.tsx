@@ -64,47 +64,17 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
   useEffect(() => {
     fetchDashboardData();
 
-    // Connect to SSE for real-time notifications
-    const hospitalId = getHospitalIdFromToken();
-    if (!hospitalId) return;
-
-    const eventSource = new EventSource(`http://localhost:5000/notifications/stream/${hospitalId}`);
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'notification' && data.notification) {
-          const notif = data.notification;
-
-          // Show toast notification
-          toast.success(
-            <div>
-              <strong>{notif.title}</strong>
-              <p className="text-sm mt-1">{notif.message}</p>
-            </div>,
-            {
-              position: "top-right",
-              autoClose: 8000,
-              hideProgressBar: false,
-              closeOnClick: true,
-              pauseOnHover: true,
-              draggable: true,
-            }
-          );
-
-          // Play notification sound
-          const audio = new Audio('/notification.mp3');
-          audio.play().catch(() => console.log('Could not play sound'));
-
-          // Refresh dashboard data
-          fetchDashboardData();
-        }
-      } catch (error) {
-        console.error('Error parsing SSE message:', error);
-      }
+    // Listen for blood request updates from the centralized SSE connection
+    const handleUpdate = () => {
+      console.log('🔄 Blood request update received, refreshing dashboard...');
+      fetchDashboardData();
     };
 
-    return () => eventSource.close();
+    window.addEventListener('bloodRequestUpdate', handleUpdate);
+
+    return () => {
+      window.removeEventListener('bloodRequestUpdate', handleUpdate);
+    };
   }, []);
 
   const fetchDashboardData = async () => {
@@ -114,15 +84,24 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
 
       const token = localStorage.getItem('token');
       const config = {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
       };
 
       // Fetch recent blood requests from blood-requests endpoint
       try {
+        console.log('🔄 Fetching blood requests from hospital dashboard...');
         const requestsResponse = await axios.get('http://localhost:5000/blood-requests/hospital', config);
+        console.log('📥 Blood requests response:', requestsResponse.data);
+        
         if (requestsResponse.data.success) {
           // Get recent requests (last 5)
           const allRequests = requestsResponse.data.bloodRequests || [];
+          console.log(`📋 Total requests: ${allRequests.length}`);
+          
           const recentRequests = allRequests.slice(0, 5).map((request: any) => ({
             _id: request._id,
             bloodGroup: request.bloodGroup,
@@ -132,6 +111,7 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
             createdAt: request.createdAt
           }));
           setRecentRequests(recentRequests);
+          console.log(`✅ Set ${recentRequests.length} recent requests`);
 
           // Calculate stats from the requests
           const activeCount = allRequests.filter((req: any) => req.status === 'pending').length;
@@ -143,8 +123,9 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
             completedThisMonth: completedCount
           }));
         }
-      } catch (reqErr) {
-        console.log('Failed to fetch blood requests:', reqErr);
+      } catch (reqErr: any) {
+        console.error('❌ Failed to fetch blood requests:', reqErr);
+        console.error('Error details:', reqErr.response?.data);
         setRecentRequests([]);
       }
 
@@ -333,10 +314,15 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Blood Requests</h3>
                 <button
-                  onClick={fetchDashboardData}
-                  className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  onClick={() => {
+                    console.log('🔄 Manual refresh triggered');
+                    fetchDashboardData();
+                  }}
+                  className="flex items-center space-x-1 text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium px-3 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  title="Refresh requests"
                 >
                   <RefreshCw className="h-4 w-4" />
+                  <span>Refresh</span>
                 </button>
               </div>
               <div className="space-y-4">

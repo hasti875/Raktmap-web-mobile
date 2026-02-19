@@ -13,4 +13,7 @@ const notificationSchema = new mongoose.Schema({
 
 notificationSchema.index({ hospitalId: 1, read: 1, createdAt: -1 });
 
+// TTL Index - Auto-delete notifications after 30 days to prevent database bloat
+notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 2592000 });
+
 module.exports = mongoose.model('Notification', notificationSchema);

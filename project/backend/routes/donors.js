@@ -8,7 +8,12 @@ const router = express.Router();
 // GET /donors - Fetch all donors
 router.get('/', async (req, res) => {
   try {
-    const donors = await Donor.find({}, { password: 0 }); // Exclude password field
+    // Only return actual donors (role='donor', willingToDonate=true, isActive=true)
+    const donors = await Donor.find({
+      role: 'donor',
+      willingToDonate: true,
+      isActive: true
+    }, { password: 0 }); // Exclude password field
     res.json(donors);
   } catch (error) {
     console.error('Error fetching donors:', error);
@@ -35,13 +40,13 @@ router.get('/verify/:uniqueId', async (req, res) => {
   try {
     const donor = await Donor.findOne({ uniqueId: req.params.uniqueId }, { password: 0 });
     if (!donor) {
-      return res.status(404).json({ 
-        success: false, 
-        message: `Donor with ID "${req.params.uniqueId}" not found in system` 
+      return res.status(404).json({
+        success: false,
+        message: `Donor with ID "${req.params.uniqueId}" not found in system`
       });
     }
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       donor: {
         uniqueId: donor.uniqueId,
         name: donor.name,
@@ -62,7 +67,7 @@ router.post('/', async (req, res) => {
   try {
     const donor = new Donor(req.body);
     const savedDonor = await donor.save();
-    
+
     // Create notification for donor creation
     try {
       const notif = await Notification.create({
@@ -74,7 +79,7 @@ router.post('/', async (req, res) => {
       });
       broadcastNotification(notif);
     } catch (e) { console.error('Failed to create donor creation notification:', e.message); }
-    
+
     res.status(201).json({ success: true, message: 'Donor created successfully', donor: savedDonor });
   } catch (error) {
     console.error('Error creating donor:', error);
@@ -89,7 +94,7 @@ router.put('/:id', async (req, res) => {
     if (!donor) {
       return res.status(404).json({ success: false, message: 'Donor not found' });
     }
-    
+
     // Create notification for donor update
     try {
       const notif = await Notification.create({
@@ -101,7 +106,7 @@ router.put('/:id', async (req, res) => {
       });
       broadcastNotification(notif);
     } catch (e) { console.error('Failed to create donor update notification:', e.message); }
-    
+
     res.json({ success: true, message: 'Donor updated successfully', donor });
   } catch (error) {
     console.error('Error updating donor:', error);
@@ -116,7 +121,7 @@ router.delete('/:id', async (req, res) => {
     if (!donor) {
       return res.status(404).json({ success: false, message: 'Donor not found' });
     }
-    
+
     // Create notification for donor deletion
     try {
       const notif = await Notification.create({
@@ -128,7 +133,7 @@ router.delete('/:id', async (req, res) => {
       });
       broadcastNotification(notif);
     } catch (e) { console.error('Failed to create donor deletion notification:', e.message); }
-    
+
     res.json({ success: true, message: 'Donor deleted successfully' });
   } catch (error) {
     console.error('Error deleting donor:', error);

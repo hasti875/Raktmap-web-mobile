@@ -9,7 +9,10 @@ const HospitalSchema = new mongoose.Schema({
   emergencyContact: { type: String },
   address: { type: String },
   radius: { type: Number, default: 10 },
-  status: { type: String, enum: ['pending', 'active', 'suspended'], default: 'pending' },
+  emailNotifications: { type: Boolean, default: true },
+  smsNotifications: { type: Boolean, default: true },
+  pushNotifications: { type: Boolean, default: true },
+  status: { type: String, enum: ['pending', 'active', 'suspended', 'denied'], default: 'pending' },
   isVerified: { type: Boolean, default: false }
 }, { timestamps: true });
 

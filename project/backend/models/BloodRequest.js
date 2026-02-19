@@ -19,7 +19,7 @@ const bloodRequestSchema = new mongoose.Schema({
   urgency: {
     type: String,
     required: true,
-  enum: ['low', 'medium', 'high', 'pregnancy']
+    enum: ['low', 'medium', 'high', 'pregnancy']
   },
   requiredBy: {
     type: Date,
@@ -32,6 +32,33 @@ const bloodRequestSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'fulfilled', 'cancelled'],
     default: 'pending'
+  },
+  confirmedUnits: {
+    type: Number,
+    default: 0
+  },
+  batchSize: {
+    type: Number,
+    default: 3
+  },
+  notifiedDonors: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Donor"
+  }],
+  remainingDonorsQueue: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Donor"
+  }],
+  batchSentAt: {
+    type: Date
+  },
+  responseWindow: {
+    type: Number,
+    default: 5 // minutes
+  },
+  batchInProgress: {
+    type: Boolean,
+    default: false
   },
   createdAt: {
     type: Date,

@@ -8,15 +8,15 @@ const initializeTwilioClient = async () => {
   try {
     console.log('🔧 Initializing Twilio client...');
     const settings = await Settings.getSettings();
-    
+
     // Get credentials with proper fallback
-    const accountSid = (settings.smsAccountSid && settings.smsAccountSid.trim() !== '') 
-      ? settings.smsAccountSid 
+    const accountSid = (settings.smsAccountSid && settings.smsAccountSid.trim() !== '')
+      ? settings.smsAccountSid
       : process.env.TWILIO_ACCOUNT_SID;
-    const authToken = (settings.smsApiKey && settings.smsApiKey.trim() !== '') 
-      ? settings.smsApiKey 
+    const authToken = (settings.smsApiKey && settings.smsApiKey.trim() !== '')
+      ? settings.smsApiKey
       : process.env.TWILIO_AUTH_TOKEN;
-    
+
     console.log('🔧 Credentials check:', {
       dbAccountSid: settings.smsAccountSid ? 'found' : 'empty',
       dbAuthToken: settings.smsApiKey ? 'found' : 'empty',
@@ -25,7 +25,7 @@ const initializeTwilioClient = async () => {
       usingAccountSid: accountSid ? accountSid.substring(0, 8) + '...' : 'none',
       usingAuthToken: authToken ? 'found' : 'none'
     });
-    
+
     if (accountSid && authToken) {
       client = twilio(accountSid, authToken);
       const source = (settings.smsAccountSid && settings.smsApiKey) ? 'database' : 'environment';
@@ -52,14 +52,14 @@ const initializeTwilioClient = async () => {
 const forceEnvInitialization = () => {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  
+
   console.log('🔧 Force initializing with environment variables...');
   console.log('🔧 Env check:', {
     accountSid: accountSid ? accountSid.substring(0, 8) + '...' : 'missing',
     authToken: authToken ? 'found' : 'missing',
     phoneNumber: process.env.TWILIO_PHONE_NUMBER || 'missing'
   });
-  
+
   if (accountSid && authToken) {
     client = twilio(accountSid, authToken);
     console.log('✅ Twilio client force-initialized with environment variables');
@@ -74,33 +74,59 @@ forceEnvInitialization();
 const sendSMS = async (to, message) => {
   try {
     console.log(`📱 Attempting to send SMS to ${to}`);
-    
+
+    // Format phone number to E.164 format (required by Twilio)
+    let formattedPhone = to;
+    if (to) {
+      // Remove all non-digit characters
+      let cleaned = to.toString().replace(/\D/g, '');
+
+      // If it starts with 91 and is 12 digits, add +
+      if (cleaned.startsWith('91') && cleaned.length === 12) {
+        formattedPhone = '+' + cleaned;
+      }
+      // If it's 10 digits, add India country code (+91)
+      else if (cleaned.length === 10) {
+        formattedPhone = '+91' + cleaned;
+      }
+      // If it already starts with +, use as is
+      else if (to.toString().startsWith('+')) {
+        formattedPhone = to.toString();
+      }
+      // Default: assume it needs +91
+      else {
+        formattedPhone = '+91' + cleaned;
+      }
+    }
+
+    console.log(`📞 Formatted phone: ${to} -> ${formattedPhone}`);
+
     // Reinitialize client to get latest settings
     if (!client) {
       console.log('🔧 Client not initialized, initializing now...');
       await initializeTwilioClient();
     }
-    
+
     if (!client) {
       throw new Error('Twilio client not initialized. Please check SMS configuration.');
     }
-    
+
     // For now, use environment variables directly
     const fromNumber = process.env.TWILIO_PHONE_NUMBER;
-    
+
     if (!fromNumber) {
       throw new Error('SMS phone number not configured in database or environment variables');
     }
-    
-    console.log(`📞 Sending SMS from ${fromNumber} to ${to}`);
+
+    console.log(`📞 Sending SMS from ${fromNumber} to ${formattedPhone}`);
     console.log(`📝 Message length: ${message.length} characters`);
-    
+
     const response = await client.messages.create({
       body: message,
-      to: to,
+      to: formattedPhone,
       from: fromNumber
     });
-    
+
     console.log('✅ SMS sent successfully:', response.sid);
     return { success: true, sid: response.sid };
   } catch (error) {
@@ -119,13 +145,13 @@ const sendSMSWithConfig = async (to, message, config) => {
       to: to,
       messageLength: message.length
     });
-    
+
     if (!config.accountSid || !config.authToken || !config.phoneNumber) {
       throw new Error('Missing required Twilio configuration: accountSid, authToken, or phoneNumber');
     }
-    
+
     const testClient = twilio(config.accountSid, config.authToken);
-    
+
     const response = await testClient.messages.create({
       body: message,
       to,
@@ -149,8 +175,8 @@ const sendSMSWithConfig = async (to, message, config) => {
 const getSMSTemplate = async (priority = 'normal') => {
   try {
     const settings = await Settings.getSettings();
-    return priority === 'high' 
-      ? settings.smsTemplateHighPriority 
+    return priority === 'high'
+      ? settings.smsTemplateHighPriority
       : settings.smsTemplateNormalPriority;
   } catch (error) {
     console.error('Error getting SMS template:', error);
@@ -176,10 +202,10 @@ const refreshTwilioClient = async () => {
   await initializeTwilioClient();
 };
 
-module.exports = { 
-  sendSMS, 
-  sendSMSWithConfig, 
-  getSMSTemplate, 
-  formatSMSMessage, 
-  refreshTwilioClient 
+module.exports = {
+  sendSMS,
+  sendSMSWithConfig,
+  getSMSTemplate,
+  formatSMSMessage,
+  refreshTwilioClient
 };

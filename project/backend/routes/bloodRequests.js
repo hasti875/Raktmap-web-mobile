@@ -6,9 +6,10 @@ const Hospital = require('../models/Hospital');
 const DonationHistory = require('../models/DonationHistory');
 const Notification = require('../models/Notification');
 const { broadcastNotification } = require('../utils/notificationStream');
+const { validateBloodRequest, validateMongoId, requireAdmin } = require('../middleware/security');
 
 // Analytics: Get total requests count
-router.get('/admin/analytics/total-requests', async (req, res) => {
+router.get('/admin/analytics/total-requests', requireAdmin, async (req, res) => {
   try {
     const totalRequests = await BloodRequest.countDocuments({});
     res.json({ success: true, data: totalRequests });
@@ -18,7 +19,7 @@ router.get('/admin/analytics/total-requests', async (req, res) => {
 });
 
 // Analytics: Get donors responded count
-router.get('/admin/analytics/donors-responded', async (req, res) => {
+router.get('/admin/analytics/donors-responded', requireAdmin, async (req, res) => {
   try {
     console.log('=== Fetching donors responded count ===');
     
@@ -50,7 +51,7 @@ router.get('/admin/analytics/donors-responded', async (req, res) => {
 });
 
 // Analytics: Get fulfillment rate
-router.get('/admin/analytics/fulfillment-rate', async (req, res) => {
+router.get('/admin/analytics/fulfillment-rate', requireAdmin, async (req, res) => {
   try {
     const totalRequests = await BloodRequest.countDocuments({});
     const fulfilledRequests = await BloodRequest.countDocuments({
@@ -65,7 +66,7 @@ router.get('/admin/analytics/fulfillment-rate', async (req, res) => {
 });
 
 // Analytics: Get average response time
-router.get('/admin/analytics/avg-response-time', async (req, res) => {
+router.get('/admin/analytics/avg-response-time', requireAdmin, async (req, res) => {
   try {
     const fulfilledRequests = await BloodRequest.find({
       status: { $in: ['fulfilled', 'completed'] },
@@ -92,7 +93,7 @@ router.get('/admin/analytics/avg-response-time', async (req, res) => {
 });
 
 // Analytics: Get combined stats for admin dashboard
-router.get('/admin/analytics/stats', async (req, res) => {
+router.get('/admin/analytics/stats', requireAdmin, async (req, res) => {
   try {
     console.log('Fetching admin analytics stats...');
     
@@ -151,7 +152,7 @@ router.get('/admin/analytics/stats', async (req, res) => {
 });
 
 // Analytics: Weekly blood request trends for admin dashboard
-router.get('/admin/analytics/request-trends', async (req, res) => {
+router.get('/admin/analytics/request-trends', requireAdmin, async (req, res) => {
   try {
     // Get last 4 weeks including current week
     const now = new Date();
@@ -205,13 +206,21 @@ router.get('/hospital', async (req, res) => {
   try {
     const hospital = req.user; // From JWT token
     
+    console.log('🔍 Fetching blood requests for hospital ID:', hospital.id);
+    console.log('🔍 Hospital ID type:', typeof hospital.id);
+    
     // Find the hospital document to get the hospital name
     const hospitalDoc = await Hospital.findById(hospital.id).select('name');
     const hospitalName = hospitalDoc ? hospitalDoc.name : 'Unknown Hospital';
     
+    console.log('🏥 Hospital name:', hospitalName);
+    
+    // Query directly with the string ID - Mongoose will handle conversion
     const bloodRequests = await BloodRequest.find({ hospitalId: hospital.id })
       .sort({ createdAt: -1 })
       .select('_id bloodGroup quantity urgency status createdAt requiredBy description');
+    
+    console.log(`📋 Found ${bloodRequests.length} blood requests for hospital ${hospital.id}`);
     
     // Add hospital name to each blood request
     const bloodRequestsWithHospital = bloodRequests.map(request => ({
@@ -309,7 +318,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Analytics: Get fulfillment rate pie chart data
-router.get('/admin/analytics/fulfillment-pie', async (req, res) => {
+router.get('/admin/analytics/fulfillment-pie', requireAdmin, async (req, res) => {
   try {
     const totalRequests = await BloodRequest.countDocuments({});
     const fulfilledRequests = await BloodRequest.countDocuments({
@@ -335,7 +344,7 @@ router.get('/admin/analytics/fulfillment-pie', async (req, res) => {
 });
 
 // Analytics: Get donors response by blood type
-router.get('/admin/analytics/donors-by-blood-type', async (req, res) => {
+router.get('/admin/analytics/donors-by-blood-type', requireAdmin, async (req, res) => {
   try {
     console.log('=== Fetching donors by blood type ===');
     
@@ -371,7 +380,7 @@ router.get('/admin/analytics/donors-by-blood-type', async (req, res) => {
 });
 
 // Analytics: Get average response time by hour
-router.get('/admin/analytics/response-time-by-hour', async (req, res) => {
+router.get('/admin/analytics/response-time-by-hour', requireAdmin, async (req, res) => {
   try {
     const timeSlots = [
       { label: '6AM-9AM', start: 6, end: 9, color: '#3b82f6' },
@@ -423,7 +432,7 @@ router.get('/admin/analytics/response-time-by-hour', async (req, res) => {
 });
 
 // Analytics: Get fulfillment rate breakdown
-router.get('/admin/analytics/fulfillment-breakdown', async (req, res) => {
+router.get('/admin/analytics/fulfillment-breakdown', requireAdmin, async (req, res) => {
   try {
     console.log('=== Fetching fulfillment breakdown ===');
     
@@ -476,7 +485,7 @@ router.get('/admin/analytics/fulfillment-breakdown', async (req, res) => {
 });
 
 // Admin: Get audit logs from notifications
-router.get('/admin/audit-logs', async (req, res) => {
+router.get('/admin/audit-logs', requireAdmin, async (req, res) => {
   try {
     console.log('=== Fetching audit logs ===');
     console.log('Request user:', req.user);

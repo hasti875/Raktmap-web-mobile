@@ -1,6 +1,6 @@
 import {
-  Home, Users, Building2, Heart, Settings, Bell,
-  Map, BarChart3, FileText, CheckCircle
+  Home, Building2, Settings, Bell, Droplet,
+  Map, Users, CheckCircle, Heart
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -15,13 +15,7 @@ export function Sidebar({ activeSection, setActiveSection }: SidebarProps) {
   const adminSections = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'hospitals', label: 'Manage Hospitals', icon: Building2 },
-    { id: 'donors', label: 'Manage Donors', icon: Users },
-    { id: 'requests', label: 'Blood Requests', icon: Heart },
-    { id: 'mark-donation', label: 'Mark Donation', icon: CheckCircle },
-    { id: 'map', label: 'Live Donor Map', icon: Map },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'audit', label: 'Audit Logs', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -29,6 +23,7 @@ export function Sidebar({ activeSection, setActiveSection }: SidebarProps) {
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'donors', label: 'Available Donors', icon: Users },
     { id: 'map', label: 'Live Map', icon: Map },
+    { id: 'blood-stock', label: 'Blood Stock', icon: Droplet },
     { id: 'mark-donation', label: 'Mark Donation', icon: CheckCircle },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'settings', label: 'Settings', icon: Settings },

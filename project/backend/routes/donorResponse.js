@@ -40,6 +40,16 @@ router.post('/donor-location', async (req, res) => {
       return res.status(404).json({ error: 'Blood request not found' });
     }
 
+    // Check if request is already fulfilled
+    if (bloodRequest.status === 'fulfilled' || bloodRequest.status === 'cancelled' || bloodRequest.status === 'completed') {
+      console.log(`❌ Location rejected: Request ${requestId} is ${bloodRequest.status}`);
+      return res.status(400).json({
+        success: false,
+        error: 'Request already fulfilled',
+        message: 'Thank you for your willingness to help, but this blood request has already been fulfilled.'
+      });
+    }
+
     console.log('Found blood request:', {
       id: bloodRequest._id,
       bloodGroup: bloodRequest.bloodGroup,
@@ -245,9 +255,9 @@ router.get('/locations', async (req, res) => {
     const allLocations = await mongoose.connection.db.collection('locations').find({}).toArray();
     console.log('Total locations found:', allLocations.length);
 
-    // ⏰ FILTER: Only include locations from the last 1 hour
-    const recentLocations = filterRecentLocations(allLocations, 1);
-    console.log(`✅ Locations within last hour: ${recentLocations.length} (filtered out ${allLocations.length - recentLocations.length} expired)`);
+    // ⏰ FILTER: Only include locations from the last 24 hours (increased from 1 for better visibility)
+    const recentLocations = filterRecentLocations(allLocations, 24);
+    console.log(`✅ Locations within last 24 hours: ${recentLocations.length} (filtered out ${allLocations.length - recentLocations.length} expired)`);
 
     // Transform locations with donor info
     const transformedLocations = recentLocations.map(location => {
@@ -409,8 +419,8 @@ router.get('/responses/:requestId', async (req, res) => {
       locationFilter.timestamp = responseTimeFilter;
     }
 
-    // ⏰ ADD 1-HOUR EXPIRY: Always filter locations to last 1 hour
-    const oneHourAgo = new Date(Date.now() - (60 * 60 * 1000));
+    // ⏰ ADD 24-HOUR EXPIRY: Show locations from last 24 hours (increased from 1 for better visibility)
+    const oneHourAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
     if (locationFilter.timestamp) {
       // Combine with existing time filter - use the more recent cutoff
       const existingCutoff = locationFilter.timestamp.$gte;
@@ -457,6 +467,22 @@ router.get('/responses/:requestId', async (req, res) => {
     // Combine both sets of locations
     const locations = [...locationsWithRequestId, ...locationsWithoutRequestId];
     console.log(`✅ Total locations (within 1 hour): ${locations.length}`);
+
+    // CHECK: If request is already fulfilled, return empty responses to clear the map
+    if (bloodRequest.status === 'fulfilled' || bloodRequest.status === 'cancelled' || (bloodRequest.confirmedUnits >= bloodRequest.quantity)) {
+      console.log(`🚫 Request ${requestId} is already ${bloodRequest.status}. Returning empty response list to clear map.`);
+      return res.json({
+        success: true,
+        responses: [],
+        requestInfo: {
+          requestId: requestId,
+          createdAt: bloodRequest.createdAt,
+          bloodGroup: bloodRequest.bloodGroup,
+          status: bloodRequest.status,
+          isFulfilled: true
+        }
+      });
+    }
 
     // Transform new location responses with enhanced time info
     const transformedNewResponses = newLocationResponses.map(response => {

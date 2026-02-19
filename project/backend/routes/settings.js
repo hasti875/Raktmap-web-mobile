@@ -1,6 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const Settings = require('../models/Settings');
+const rateLimit = require('express-rate-limit');
+
+// SMS Rate Limiter - 10 SMS requests per hour
+const smsLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: { success: false, message: 'Too many SMS requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // Get system settings
 router.get('/settings', async (req, res) => {
@@ -118,7 +128,7 @@ router.get('/settings/debug', async (req, res) => {
 });
 
 // Test SMS configuration
-router.post('/settings/test-sms', async (req, res) => {
+router.post('/settings/test-sms', smsLimiter, async (req, res) => {
   try {
     const { phoneNumber, templateType = 'normal' } = req.body;
     

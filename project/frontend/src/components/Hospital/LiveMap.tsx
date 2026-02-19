@@ -478,30 +478,18 @@ export function LiveMap() {
     }
   }, [selectedRequest]);
 
-  // SSE for real-time notifications
+  // Listen for real-time updates from centralized SSE connection
   useEffect(() => {
-    const hospitalId = getHospitalIdFromToken();
-    if (!hospitalId) return;
-
-    const eventSource = new EventSource(`http://localhost:5000/notifications/stream/${hospitalId}`);
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'notification' && data.notification) {
-          toast.success(
-            <div>
-              <strong>{data.notification.title}</strong>
-              <p className="text-sm mt-1">{data.notification.message}</p>
-            </div>,
-            { position: "top-right", autoClose: 8000 }
-          );
-          fetchDonorResponses(); // Refresh map
-        }
-      } catch (error) {
-        console.error('SSE error:', error);
-      }
+    const handleUpdate = () => {
+      console.log('🔄 Blood request update received, refreshing map...');
+      fetchDonorResponses();
     };
-    return () => eventSource.close();
+
+    window.addEventListener('bloodRequestUpdate', handleUpdate);
+
+    return () => {
+      window.removeEventListener('bloodRequestUpdate', handleUpdate);
+    };
   }, []);
 
   // Add distance and blood group compatibility filtering to donor responses

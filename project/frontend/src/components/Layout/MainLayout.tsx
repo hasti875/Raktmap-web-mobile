@@ -6,9 +6,6 @@ import { useAuth } from '../../contexts/AuthContext';
 // Import all dashboard section components
 import { AdminDashboard } from '../Admin/AdminDashboard';
 import { HospitalManagement } from '../Admin/HospitalManagement';
-import { DonorManagement } from '../Admin/DonorManagement';
-import { BloodRequestManagement } from '../Admin/BloodRequestManagement';
-import { MarkDonation } from '../Admin/MarkDonation';
 import { HospitalDashboard } from '../Hospital/HospitalDashboard';
 import { BloodRequestForm } from '../Hospital/BloodRequestForm';
 import { AvailableDonors } from '../Hospital/AvailableDonors';
@@ -17,10 +14,9 @@ import { DonationHistory } from '../Hospital/DonationHistory';
 import { SearchDonors } from '../Hospital/SearchDonors';
 import { NotificationCenter } from '../Hospital/NotificationCenter';
 import { HospitalSettings } from '../Hospital/HospitalSettings';
-import { Analytics } from '../Admin/Analytics';
-import { LiveDonorMap } from '../Admin/LiveDonorMap';
+import { BloodStockManagement } from '../Hospital/BloodStockManagement';
+import { MarkDonation } from '../Admin/MarkDonation';
 import { Notifications as AdminNotifications } from '../Admin/Notifications';
-import { AuditLogs } from '../Admin/AuditLogs';
 import { AdminSettings } from '../Admin/AdminSettings';
 
 const MainLayout: React.FC = () => {
@@ -35,20 +31,8 @@ const MainLayout: React.FC = () => {
           return <AdminDashboard />;
         case 'hospitals':
           return <HospitalManagement />;
-        case 'donors':
-          return <DonorManagement />;
-        case 'requests':
-          return <BloodRequestManagement />;
-        case 'mark-donation':
-          return <MarkDonation />;
-        case 'map':
-          return <LiveDonorMap />;
-        case 'analytics':
-          return <Analytics />;
         case 'notifications':
           return <AdminNotifications />;
-        case 'audit':
-          return <AuditLogs />;
         case 'settings':
           return <AdminSettings />;
         default:
@@ -59,7 +43,7 @@ const MainLayout: React.FC = () => {
         case 'dashboard':
           return <HospitalDashboard onNavigate={setActiveSection} />;
         case 'request-blood':
-          return <BloodRequestForm />;
+          return <BloodRequestForm onSuccess={() => setActiveSection('dashboard')} />;
         case 'donors':
           return <AvailableDonors />;
         case 'mark-donation':
@@ -70,6 +54,8 @@ const MainLayout: React.FC = () => {
           return <DonationHistory />;
         case 'search':
           return <SearchDonors />;
+        case 'blood-stock':
+          return <BloodStockManagement />;
         case 'notifications':
           return <NotificationCenter />;
         case 'settings':

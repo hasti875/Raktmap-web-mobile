@@ -11,6 +11,7 @@ import Loader from "./components/Shared/Loader";
 import { useAuth } from "./contexts/AuthContext";
 import { DonorLocationPage } from "./components/Hospital/DonorLocationPage";
 import { DonorTokenResponse } from "./components/Donor/DonorTokenResponse";
+import { NotFound } from "./components/Shared/NotFound";
 
 const GoodbyeLoader = ({ name }: { name: string }) => (
   <div>
@@ -157,8 +158,9 @@ const App: React.FC = () => {
         />
         {/* Redirect root to login */}
         <Route path="/" element={<Navigate to="/login" replace />} />
-        {/* Optionally, handle 404 */}
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        
+        {/* 404 - Page Not Found */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </>
   );

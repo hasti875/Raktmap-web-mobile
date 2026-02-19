@@ -6,274 +6,234 @@ const Notification = require('../models/Notification');
 const { sendSMS, getSMSTemplate, formatSMSMessage } = require('../services/smsService');
 const { broadcastNotification } = require('../utils/notificationStream');
 
-// Blood compatibility chart - who each recipient blood type can receive from (donors)
-const bloodRecipientCompatibilityChart = {
-  'A-': ['A-', 'O-'],                                    // A- can receive from A-, O-
-  'A+': ['A+', 'A-', 'O+', 'O-'],                       // A+ can receive from A+, A-, O+, O-
-  'B-': ['B-', 'O-'],                                    // B- can receive from B-, O-
-  'B+': ['B+', 'B-', 'O+', 'O-'],                       // B+ can receive from B+, B-, O+, O-
-  'AB-': ['AB-', 'A-', 'B-', 'O-'],                     // AB- can receive from AB-, A-, B-, O-
-  'AB+': ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'], // AB+ universal recipient
-  'O-': ['O-'],                                          // O- can only receive from O-
-  'O+': ['O+', 'O-']                                     // O+ can receive from O+, O-
+
+
+// Send next batch of SMS
+const sendNextBatch = async (requestId) => {
+  try {
+    const request = await BloodRequest.findById(requestId).populate('hospitalId');
+    if (!request) return;
+
+    // Check if request is already fulfilled or cancelled
+    if (request.status === 'fulfilled' || request.status === 'cancelled') {
+      return;
+    }
+
+    // Check if queue is empty
+    if (request.remainingDonorsQueue.length === 0) {
+      console.log(`[Batch] No more donors in queue for request ${requestId}`);
+      // Optional: Mark as completed if no donors left? Or just leave as pending.
+      return;
+    }
+
+    const batchSize = request.batchSize || 1;
+
+    // Extract batch
+    const nextBatchIds = request.remainingDonorsQueue.slice(0, batchSize);
+
+    // Remove from queue and add to notified
+    request.remainingDonorsQueue = request.remainingDonorsQueue.slice(batchSize);
+    request.notifiedDonors.push(...nextBatchIds);
+
+    // Set batch tracking
+    request.batchSentAt = new Date();
+    request.batchInProgress = true;
+
+    await request.save();
+
+    console.log(`\n📦 === SENDING BATCH SMS ===`);
+    console.log(`Request ID: ${requestId}`);
+    console.log(`Batch Size: ${nextBatchIds.length}`);
+    console.log(`Remaining in queue: ${request.remainingDonorsQueue.length}`);
+
+    // Fetch donor details
+    const donors = await Donor.find({ _id: { $in: nextBatchIds } });
+    const hospital = request.hospitalId;
+
+    let smsSuccessCount = 0;
+
+    // Process batch
+    const smsPromises = donors.map(async (donor) => {
+      try {
+        const donorPhone = donor.phoneNumber || donor["Mobile No"] || donor.phone;
+        const donorName = donor["Student Name"] || donor.name || donor._id;
+
+        if (!donorPhone) return;
+
+        // Generate tracking token
+        const responseToken = Math.random().toString(36).substr(2, 8);
+
+        await ResponseToken.create({
+          token: responseToken,
+          requestId: request._id,
+          donorId: donor._id
+        });
+
+        // Prepare SMS content
+        let urgencyText;
+        if (request.urgency === 'pregnancy') urgencyText = 'PREGNANCY EMERGENCY - URGENT';
+        else if (request.urgency === 'high') urgencyText = 'HIGH PRIORITY - EMERGENCY';
+        else if (request.urgency === 'medium') urgencyText = 'MEDIUM PRIORITY';
+        else urgencyText = 'LOW PRIORITY';
+
+        const priority = (request.urgency === 'high' || request.urgency === 'pregnancy') ? 'high' : 'normal';
+        const smsTemplate = await getSMSTemplate(priority);
+
+        const templateVars = {
+          hospital: hospital.name,
+          bloodType: request.bloodGroup,
+          quantity: request.quantity,
+          urgency: urgencyText,
+          donorName: donorName,
+          responseUrl: `https://donor-tracker-msrl.vercel.app/${request._id}`,
+        };
+
+        let message;
+        if (request.urgency === 'pregnancy') {
+          message = `PREGNANCY EMERGENCY: ${request.quantity} units ${request.bloodGroup} blood needed URGENTLY for pregnant patient at ${hospital.name}. Please respond: ${templateVars.responseUrl}`;
+        } else {
+          message = formatSMSMessage(smsTemplate, templateVars);
+          if (!message.includes('http') && !message.includes('{responseUrl}')) {
+            message += ` Respond: ${templateVars.responseUrl}`;
+          }
+        }
+
+        const smsResult = await sendSMS(donorPhone, message);
+
+        if (smsResult.success) {
+          smsSuccessCount++;
+          // Create success notification
+          try {
+            const notif = await Notification.create({
+              hospitalId: hospital._id,
+              type: 'info',
+              title: 'SMS Sent (Batch)',
+              message: `SMS sent to ${donorName} (${donorPhone})`,
+              meta: { bloodRequestId: request._id, donorId: donor._id, smsId: smsResult.sid }
+            });
+            broadcastNotification(notif);
+          } catch (e) {
+            console.error('Failed to create notification', e);
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to process donor ${donor._id} in batch:`, err);
+      }
+    });
+
+    await Promise.allSettled(smsPromises);
+    console.log(`✅ Batch complete. Sent: ${smsSuccessCount}/${donors.length}`);
+
+  } catch (error) {
+    console.error('Error in sendNextBatch:', error);
+  }
 };
-
-// Function to check blood compatibility - can this recipient receive from this donor?
-function isBloodCompatible(recipientBloodGroup, donorBloodGroup) {
-  // Normalize blood groups by removing spaces and converting to uppercase
-  const normalizedRecipient = recipientBloodGroup.replace(/\s+/g, '').toUpperCase();
-  const normalizedDonor = donorBloodGroup.replace(/\s+/g, '').toUpperCase();
-
-  console.log(`🔬 Compatibility check: Recipient ${recipientBloodGroup} (normalized: ${normalizedRecipient}) <- Donor ${donorBloodGroup} (normalized: ${normalizedDonor})`);
-  console.log(`🔬 Compatible donors for ${normalizedRecipient}: ${bloodRecipientCompatibilityChart[normalizedRecipient] || 'NONE FOUND'}`);
-
-  // Check if this recipient can receive from this donor
-  const isCompatible = bloodRecipientCompatibilityChart[normalizedRecipient]?.includes(normalizedDonor) || false;
-  console.log(`🔬 Result: ${isCompatible}`);
-
-  return isCompatible;
-}
 
 // Create a new blood request
 const createBloodRequest = async (req, res) => {
   try {
     const { bloodGroup, quantity, urgency, requiredBy, description, patientAge, patientCondition } = req.body;
-    const hospital = req.user; // From JWT token
+    const userFromToken = req.user; // From JWT token - contains { id, email, role, name }
 
-    console.log('\n🩸 === CREATING NEW BLOOD REQUEST ===');
-    console.log('Hospital:', hospital.name);
+    console.log('\n🩸 === CREATING NEW BLOOD REQUEST (BATCH MODE) ===');
+    console.log('User from token:', userFromToken);
     console.log('Blood Group:', bloodGroup);
-    console.log('Quantity:', quantity);
-    console.log('Urgency:', urgency);
+
+    // Fetch the full hospital document from database
+    const hospital = await Hospital.findById(userFromToken.id);
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hospital not found'
+      });
+    }
+
+    console.log('Hospital:', hospital.name);
 
     // Create and save the blood request
     const bloodRequest = new BloodRequest({
-      hospitalId: hospital.id,
+      hospitalId: hospital._id,
       bloodGroup,
       quantity,
       urgency,
       requiredBy,
       description,
       patientAge,
-      patientCondition
+      patientCondition,
+      confirmedUnits: 0,
+      batchSize: 1, // 1 donor per batch for testing
+      responseWindow: 2, // 2 minutes window for testing
+      batchInProgress: false
     });
+
+    // Find eligible donors first - only those with role='donor' and willing to donate
+    const allDonors = await Donor.find({
+      role: 'donor',
+      willingToDonate: true,
+      isActive: true
+    });
+
+    // Filter logic (Exact match + 3 months rule)
+    const matchingDonors = allDonors.filter(donor => {
+      const donorBloodGroup = donor.bloodGroup || donor["Blood Group"];
+
+      // 3 month rule
+      if (donor.lastDonationDate) {
+        const lastDonation = new Date(donor.lastDonationDate);
+        const threeMonthsAgo = new Date();
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        if (lastDonation > threeMonthsAgo) return false;
+      }
+
+      // Blood group match
+      const normalizedRequested = bloodGroup.replace(/\s+/g, '').toUpperCase();
+      const normalizedDonor = donorBloodGroup ? donorBloodGroup.replace(/\s+/g, '').toUpperCase() : '';
+      return normalizedDonor === normalizedRequested;
+    });
+
+    // Sort donors (optional - can be by distance or last donation, simple sort by ID or name for now)
+    matchingDonors.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    // Add donors to queue
+    const donorIds = matchingDonors.map(d => d._id);
+    bloodRequest.remainingDonorsQueue = donorIds;
+
+    console.log(`Found ${donorIds.length} eligible donors. Added to queue.`);
 
     await bloodRequest.save();
     console.log('✅ Blood request saved with ID:', bloodRequest._id);
+    console.log('✅ Blood request hospitalId:', bloodRequest.hospitalId);
+    console.log('✅ JWT user id:', userFromToken.id);
+    console.log('✅ Hospital document _id:', hospital._id.toString());
 
-    // Create notification for hospital
+    // Initial Notification
     try {
       const notification = await Notification.create({
-        hospitalId: hospital.id,
+        hospitalId: hospital._id,
         type: 'info',
         title: 'Blood Request Created',
-        message: `${quantity} unit(s) of ${bloodGroup} requested (urgency: ${urgency})`,
+        message: `${quantity} unit(s) of ${bloodGroup} requested. Queued ${donorIds.length} donors.`,
         meta: { bloodRequestId: bloodRequest._id }
       });
       broadcastNotification(notification);
+      console.log('✅ Notification broadcasted for hospital:', hospital._id);
     } catch (e) {
       console.error('Failed to create notification:', e.message);
     }
 
-    // Find donors with EXACT blood group match (not compatible groups)
-    const allDonors = await Donor.find({});
-    console.log(`\n🔍 === EXACT BLOOD GROUP MATCHING ===`);
-    console.log(`Recipient needs: ${bloodGroup}`);
-    console.log(`Sending SMS ONLY to: ${bloodGroup} donors`);
-    console.log(`Total donors found in database: ${allDonors.length}`);
+    // Trigger first batch asynchronously
+    sendNextBatch(bloodRequest._id);
 
-    // Log all donors for debugging
-    console.log('\n📋 All donors in database:');
-    allDonors.forEach((donor, index) => {
-      const donorBloodGroup = donor.bloodGroup || donor["Blood Group"];
-      console.log(`${index + 1}. ${donor.name} - Blood Group: ${donorBloodGroup} - Phone: ${donor.phone || donor.phoneNumber || donor["Mobile No"] || 'N/A'}`);
-    });
-
-    // Filter for EXACT blood group match only
-    const matchingDonors = allDonors.filter(donor => {
-      const donorBloodGroup = donor.bloodGroup || donor["Blood Group"];
-
-      // Normalize blood groups for comparison
-      const normalizedRequested = bloodGroup.replace(/\s+/g, '').toUpperCase();
-      const normalizedDonor = donorBloodGroup ? donorBloodGroup.replace(/\s+/g, '').toUpperCase() : '';
-
-      const isExactMatch = normalizedDonor === normalizedRequested;
-
-      console.log(`🔍 Checking ${donor.name} (${donorBloodGroup}) -> Exact match: ${isExactMatch}`);
-
-      if (isExactMatch) {
-        console.log(`✅ MATCH: ${donor.name} (${donorBloodGroup}) matches ${bloodGroup}`);
-      } else if (donorBloodGroup) {
-        console.log(`❌ No match: ${donor.name} (${donorBloodGroup}) != ${bloodGroup}`);
-      } else {
-        console.log(`⚠️ Missing blood group: ${donor.name} has no blood group specified`);
-      }
-
-      return isExactMatch;
-    });
-
-    console.log(`Total matching donors found: ${matchingDonors.length}`);
-
-    console.log(`\n🩸 SMS DISPATCH STARTED 🩸`);
-    console.log(`Hospital: ${hospital.name}`);
-    console.log(`Blood Group Needed: ${bloodGroup}`);
-    console.log(`Urgency Level: ${urgency}`);
-    console.log(`Total Matching Donors Found: ${matchingDonors.length}`);
-    console.log(`-`.repeat(80));
-
-    let smsSuccessCount = 0;
-
-    // Send SMS to matching donors (exact blood group only)
-    for (const donor of matchingDonors) {
-      const donorPhone = donor.phoneNumber || donor["Mobile No"] || donor.phone;
-      const donorName = donor["Student Name"] || donor.name || donor._id;
-
-      if (!donorPhone) {
-        console.warn(`No phone number for donor: ${donorName}`);
-        continue;
-      }
-
-      try {
-        // Generate tracking token
-        const responseToken = Math.random().toString(36).substr(2, 8);
-
-        // Store token mapping
-        await ResponseToken.create({
-          token: responseToken,
-          requestId: bloodRequest._id,
-          donorId: donor._id
-        });
-
-        // Create SMS message with tracking link - customized for urgency
-        let urgencyText;
-        if (urgency === 'pregnancy') {
-          urgencyText = 'PREGNANCY EMERGENCY - URGENT';
-        } else if (urgency === 'high') {
-          urgencyText = 'HIGH PRIORITY - EMERGENCY';
-        } else if (urgency === 'medium') {
-          urgencyText = 'MEDIUM PRIORITY';
-        } else {
-          urgencyText = 'LOW PRIORITY';
-        }
-
-        // Get SMS template based on urgency
-        const priority = (urgency === 'high' || urgency === 'pregnancy') ? 'high' : 'normal';
-        const smsTemplate = await getSMSTemplate(priority);
-
-        // Template variables for message formatting
-        const templateVars = {
-          hospital: hospital.name,
-          bloodType: bloodGroup,
-          quantity: quantity,
-          urgency: urgencyText,
-          donorName: donorName,
-          // UPDATED: Include both requestId and donorId in the URL
-          responseUrl: `https://donor-location-tracker.onrender.com/donor-location/${bloodRequest._id}`,
-
-        };
-
-        // Special handling for pregnancy emergencies
-        let message;
-        if (urgency === 'pregnancy') {
-          message = `PREGNANCY EMERGENCY: ${quantity} units ${bloodGroup} blood needed URGENTLY for pregnant patient at ${hospital.name}. ` +
-            ` Your response will help mother and child. ` +
-            `Please respond: ${templateVars.responseUrl}`;
-        } else {
-          // Use dynamic template with variable replacement
-          message = formatSMSMessage(smsTemplate, templateVars);
-
-          // Add response URL if not already in template
-          if (!message.includes('http') && !message.includes('{responseUrl}')) {
-            message += ` Respond: ${templateVars.responseUrl}`;
-          }
-        }
-
-        console.log(`🔍 Debug - Sending SMS for urgency: ${urgency}`);
-        console.log(`📝 Message content: ${message.substring(0, 100)}...`);
-        console.log(`📏 Message length: ${message.length} characters`);
-
-        const smsResult = await sendSMS(donorPhone, message);
-
-        if (smsResult.success) {
-          smsSuccessCount++;
-
-          // Enhanced logging with detailed user information
-          console.log(`\n📤 ===== SMS SENT SUCCESSFULLY =====`);
-          console.log(`👤 Donor Name: ${donorName}`);
-          console.log(`🩸 Blood Group: ${donor.bloodGroup}`);
-          console.log(`📞 Phone Number: ${donorPhone}`);
-          console.log(`🆔 Donor ID: ${donor._id}`);
-          console.log(`📧 Email: ${donor.email || 'Not provided'}`);
-          console.log(`📍 Location: ${donor.location || 'Not provided'}`);
-          console.log(`🏥 Hospital: ${hospital.name}`);
-          console.log(`🚨 Urgency: ${urgency.toUpperCase()}`);
-          console.log(`🎯 Requested Blood: ${bloodGroup}`);
-          console.log(`📊 Twilio SID: ${smsResult.sid}`);
-          console.log(`=======================================\n`);
-
-          // Create success notification
-          try {
-            const notif = await Notification.create({
-              hospitalId: hospital.id,
-              type: 'info',
-              title: 'SMS Sent',
-              message: `SMS sent to ${donorName} (${donorPhone})`,
-              meta: {
-                bloodRequestId: bloodRequest._id,
-                donorId: donor._id,
-                smsId: smsResult.sid
-              }
-            });
-            broadcastNotification(notif);
-          } catch (e) {
-            console.error('Failed to create SMS notification:', e.message);
-          }
-        } else {
-          console.error(`❌ Failed to send SMS to ${donorName} (${donorPhone}):`, smsResult.error);
-
-          // Create error notification
-          try {
-            const errorNotif = await Notification.create({
-              hospitalId: hospital.id,
-              type: 'error',
-              title: 'SMS Failed',
-              message: `Failed to send SMS to ${donorName}: ${smsResult.error}`,
-              meta: {
-                bloodRequestId: bloodRequest._id,
-                donorId: donor._id,
-                error: smsResult.error
-              }
-            });
-            broadcastNotification(errorNotif);
-          } catch (e) {
-            console.error('Failed to create error notification:', e.message);
-          }
-        }
-
-      } catch (error) {
-        console.error(`Error processing donor ${donorName}:`, error);
-      }
-    }
-
-    console.log(`\n📊 ===== SMS DISPATCH SUMMARY =====`);
-    console.log(`Total Matching Donors: ${matchingDonors.length}`);
-    console.log(`SMS Successfully Sent: ${smsSuccessCount}`);
-    console.log(`SMS Failed: ${matchingDonors.length - smsSuccessCount}`);
-    console.log(`Success Rate: ${((smsSuccessCount / matchingDonors.length) * 100).toFixed(1)}%`);
-    console.log(`===================================\n`);
-
-    // Return success response
+    // Return success response immediately
     res.status(201).json({
       success: true,
-      message: 'Blood request created and SMS notifications sent successfully',
+      message: 'Blood request created. SMS batch processing started.',
       data: {
         requestId: bloodRequest._id,
         bloodGroup: bloodRequest.bloodGroup,
         quantity: bloodRequest.quantity,
-        urgency: bloodRequest.urgency,
         matchingDonors: matchingDonors.length,
-        smsSuccessCount,
-        smsFailCount: matchingDonors.length - smsSuccessCount
+        status: 'processing'
       }
     });
 
@@ -339,5 +299,5 @@ module.exports = {
   createBloodRequest,
   getAllBloodRequests,
   getBloodRequestById,
-  isBloodCompatible
+  sendNextBatch
 };

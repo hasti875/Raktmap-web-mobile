@@ -15,14 +15,15 @@ const LoginForm: React.FC = () => {
     e.preventDefault();
     setMessage("");
     setLoading(true);
-    const success = await login(email, password);
-    if (success) {
+
+    try {
+      await login(email, password);
       setLoading(false);
       // Navigation will be handled automatically based on detected role
       // The App.tsx will redirect to appropriate dashboard
-    } else {
+    } catch (error: any) {
       setLoading(false);
-      setMessage("Login failed");
+      setMessage(error.message || "Login failed");
     }
   };
 
@@ -68,8 +69,8 @@ const LoginForm: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Password
               </label>
-              <Link 
-                to="/forgot-password" 
+              <Link
+                to="/forgot-password"
                 className="text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:underline"
               >
                 Forgot Password?

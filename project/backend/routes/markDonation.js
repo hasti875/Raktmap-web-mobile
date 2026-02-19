@@ -9,6 +9,18 @@ const router = express.Router();
 // In-memory lock to prevent concurrent processing
 const processingLock = new Set();
 
+// Helper function to normalize phone numbers for comparison
+const normalizePhone = (phone) => {
+  if (!phone) return '';
+  // Remove all non-digit characters and common prefixes
+  let normalized = phone.toString().replace(/[^\d]/g, '');
+  // Remove country code prefixes (91 for India)
+  if (normalized.startsWith('91') && normalized.length > 10) {
+    normalized = normalized.substring(2);
+  }
+  return normalized;
+};
+
 // Create Location model
 let Location;
 try {
@@ -34,9 +46,9 @@ try {
 router.post('/mark-donation', async (req, res) => {
   try {
     const { donorId, donorName, requestId } = req.body;
-    
+
     console.log('\n🔍 QR DONATION:', { donorId, donorName, requestId });
-    
+
     if (!donorId) {
       return res.status(400).json({ success: false, error: 'Donor ID required' });
     }
@@ -46,7 +58,7 @@ router.post('/mark-donation', async (req, res) => {
       console.log('❌ Already processing this donor');
       return res.status(400).json({ success: false, error: 'Processing in progress' });
     }
-    
+
     // Add to processing lock
     processingLock.add(donorId);
     console.log('🔒 Locked:', donorId);
@@ -56,33 +68,41 @@ router.post('/mark-donation', async (req, res) => {
       donorId: donorId,
       status: 'completed'
     }).sort({ completedAt: -1 });
-    
+
     if (existingDonation) {
-      const timeSince = Math.round((Date.now() - existingDonation.completedAt.getTime()) / 1000);
-      console.log('❌ Already donated', timeSince, 'seconds ago');
-      // DON'T delete lock - keep it permanently for already donated donors
-      return res.status(400).json({ success: false, error: 'Already donated' });
+      const threeMonthsInMillis = 90 * 24 * 60 * 60 * 1000;
+      const timeSinceLastDonation = Date.now() - existingDonation.completedAt.getTime();
+
+      if (timeSinceLastDonation < threeMonthsInMillis) {
+        const daysSince = Math.floor(timeSinceLastDonation / (24 * 60 * 60 * 1000));
+        console.log(`❌ Donated recently (${daysSince} days ago)`);
+        return res.status(400).json({
+          success: false,
+          error: `Donor has donated recently (${daysSince} days ago). Must wait 3 months between donations.`
+        });
+      }
+      // If > 3 months, proceed
     }
 
     // FIRST: Check if donor exists in the locations collection (live map users)
     console.log('Searching for donor in locations:', donorId);
-    
+
     let locationRecord = await Location.findOne({ donorId: donorId });
     console.log('Mongoose Location.findOne result:', locationRecord);
-    
+
     // Fallback: Try direct MongoDB query
     if (!locationRecord) {
       console.log('Trying direct MongoDB query...');
       locationRecord = await mongoose.connection.db.collection('locations').findOne({ donorId: donorId });
       console.log('Direct MongoDB query result:', locationRecord);
     }
-    
+
     if (!locationRecord) {
       processingLock.delete(donorId);
       console.log('❌ Donor not found in live locations (both queries failed)');
-      return res.status(404).json({ 
-        success: false, 
-        error: `Donor with ID "${donorId}" not found on live map. Please ensure the donor has shared their location.` 
+      return res.status(404).json({
+        success: false,
+        error: `Donor with ID "${donorId}" not found on live map. Please ensure the donor has shared their location.`
       });
     }
 
@@ -94,26 +114,30 @@ router.post('/mark-donation', async (req, res) => {
 
     // THEN: Try to find donor in registered donors for additional info (including blood group)
     let donorRecord = await Donor.findOne({ uniqueId: donorId });
-    
+
     // If not found by uniqueId, try matching by phone or name
     if (!donorRecord && locationRecord.mobileNumber) {
-      donorRecord = await Donor.findOne({ 
-        $or: [
-          { phone: locationRecord.mobileNumber },
-          { phone: locationRecord.mobileNumber.replace(/\s+/g, '') }
-        ]
+      const normalizedLocationPhone = normalizePhone(locationRecord.mobileNumber);
+      console.log('Searching for donor by phone:', locationRecord.mobileNumber, '-> normalized:', normalizedLocationPhone);
+      
+      // Get all donors and check phone match with normalization
+      const allDonors = await Donor.find({});
+      donorRecord = allDonors.find(d => {
+        const normalizedDonorPhone = normalizePhone(d.phone);
+        return normalizedDonorPhone === normalizedLocationPhone;
       });
-      console.log('Donor found by phone:', donorRecord ? 'YES' : 'NO');
+      
+      console.log('Donor found by phone:', donorRecord ? `YES - ${donorRecord.name}` : 'NO');
     }
-    
+
     // If still not found, try by name
     if (!donorRecord && locationRecord.userName) {
-      donorRecord = await Donor.findOne({ 
+      donorRecord = await Donor.findOne({
         name: { $regex: new RegExp('^' + locationRecord.userName.trim() + '$', 'i') }
       });
       console.log('Donor found by name:', donorRecord ? 'YES' : 'NO');
     }
-    
+
     console.log('Donor record found:', donorRecord ? `${donorRecord.name} (${donorRecord.bloodGroup})` : 'NO (using location data)');
 
     // Get the actual requestId from the location record if available
@@ -125,19 +149,19 @@ router.post('/mark-donation', async (req, res) => {
       bloodRequest = await BloodRequest.findById(actualRequestId);
       console.log('Request found:', bloodRequest ? `YES (${bloodRequest.bloodGroup}, status: ${bloodRequest.status})` : 'NO');
     }
-    
+
     // If no specific request found, try to find a matching pending request
     if (!bloodRequest && donorRecord?.bloodGroup) {
       bloodRequest = await BloodRequest.findOne({
         bloodGroup: donorRecord.bloodGroup,
         status: 'pending'
       }).sort({ createdAt: -1 }); // Get the most recent one
-      
+
       if (bloodRequest) {
         console.log('Found matching pending request:', bloodRequest._id, 'for blood group:', bloodRequest.bloodGroup);
       }
     }
-    
+
     // Still no request? Create one
     if (!bloodRequest) {
       bloodRequest = await BloodRequest.create({
@@ -161,9 +185,9 @@ router.post('/mark-donation', async (req, res) => {
       donorBloodGroup: donorRecord ? donorRecord.bloodGroup : 'Unknown',
       status: 'completed',
       completedAt: new Date(),
-      location: { 
-        lat: locationRecord.latitude || 0, 
-        lng: locationRecord.longitude || 0 
+      location: {
+        lat: locationRecord.latitude || 0,
+        lng: locationRecord.longitude || 0
       },
       address: locationRecord.address || 'Location Shared',
       notes: `Manual Entry: ${donorId}`
@@ -171,15 +195,52 @@ router.post('/mark-donation', async (req, res) => {
 
     console.log('✅ Donation saved:', donation._id);
 
-    // Update blood request - mark as fulfilled
-    try {
-      bloodRequest.status = 'fulfilled';
-      bloodRequest.fulfilledAt = new Date();
-      if (bloodRequest.quantity > 1) {
-        bloodRequest.quantity -= 1;
+    // Update donor's last donation date - CRITICAL for 3-month rule
+    if (donorRecord) {
+      donorRecord.lastDonationDate = new Date();
+      await donorRecord.save();
+      console.log(`✅ Updated donor ${donorRecord.name} last donation date to ${donorRecord.lastDonationDate}`);
+    } else {
+      // Try to find donor by phone from the donation history we just created
+      try {
+        const normalizedHistoryPhone = normalizePhone(donation.donorPhone);
+        const allDonors = await Donor.find({});
+        const matchedDonor = allDonors.find(d => {
+          return normalizePhone(d.phone) === normalizedHistoryPhone;
+        });
+        
+        if (matchedDonor) {
+          matchedDonor.lastDonationDate = new Date();
+          await matchedDonor.save();
+          console.log(`✅ Updated donor ${matchedDonor.name} last donation date via phone match`);
+        } else {
+          console.log('⚠️ Could not find donor record to update lastDonationDate');
+        }
+      } catch (err) {
+        console.log('Could not update donor last donation date:', err.message);
       }
-      await bloodRequest.save();
-      console.log('✅ Request fulfilled:', bloodRequest._id, 'Status:', bloodRequest.status);
+    }
+
+    // Update blood request - increment confirmedUnits
+    try {
+      // Atomically increment confirmedUnits
+      const updatedRequest = await BloodRequest.findOneAndUpdate(
+        { _id: bloodRequest._id },
+        { $inc: { confirmedUnits: 1 } },
+        { new: true }
+      );
+
+      if (updatedRequest.confirmedUnits >= updatedRequest.quantity) {
+        updatedRequest.status = 'fulfilled';
+        updatedRequest.fulfilledAt = new Date();
+        updatedRequest.batchInProgress = false; // Stop batches
+        await updatedRequest.save();
+        console.log('✅ Request fulfilled:', updatedRequest._id, 'Status:', updatedRequest.status);
+      } else {
+        console.log(`✅ request confirmedUnits updated: ${updatedRequest.confirmedUnits}/${updatedRequest.quantity}`);
+        // Note: We do NOT trigger sendNextBatch here. 
+        // The response window checker (cron/poll) will handle it if needed.
+      }
     } catch (err) {
       console.log('⚠️ Request update failed (non-critical):', err.message);
     }
@@ -222,13 +283,39 @@ router.get('/test', (req, res) => {
   res.json({ success: true, message: 'API working', time: new Date() });
 });
 
-// Recent donations
+// Recent donations - Enhanced with donor name lookup
 router.get('/recent-donations', async (req, res) => {
   try {
     const donations = await DonationHistory.find({ status: 'completed' })
       .sort({ completedAt: -1 })
-      .limit(50);
-    res.json({ success: true, donations });
+      .limit(50)
+      .lean();
+
+    // Get all donors for phone matching
+    const allDonors = await Donor.find({}).lean();
+    
+    // Enhance each donation with actual donor info from DB
+    const enhancedDonations = donations.map(donation => {
+      // Try to find the donor by phone number
+      const normalizedDonationPhone = normalizePhone(donation.donorPhone);
+      const matchedDonor = allDonors.find(d => 
+        normalizePhone(d.phone) === normalizedDonationPhone
+      );
+
+      if (matchedDonor) {
+        // Update with actual donor info from database
+        return {
+          ...donation,
+          donorName: matchedDonor.name,
+          donorBloodGroup: matchedDonor.bloodGroup,
+          donorPhone: matchedDonor.phone
+        };
+      }
+      
+      return donation;
+    });
+
+    res.json({ success: true, donations: enhancedDonations });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -238,36 +325,36 @@ router.get('/recent-donations', async (req, res) => {
 router.get('/verify-location/:donorId', async (req, res) => {
   try {
     const { donorId } = req.params;
-    
+
     console.log('\n========================================');
     console.log('=== VERIFYING DONOR LOCATION ===');
     console.log('Donor ID received:', donorId);
     console.log('Donor ID type:', typeof donorId);
     console.log('Donor ID length:', donorId.length);
     console.log('========================================\n');
-    
+
     // List all locations to debug
     const allLocations = await mongoose.connection.db.collection('locations').find({}).toArray();
     console.log('Total locations in collection:', allLocations.length);
     console.log('All donor IDs in collection:', allLocations.map(l => l.donorId));
-    
+
     // Try direct MongoDB query first with exact match
     const directQuery = await mongoose.connection.db.collection('locations').findOne({ donorId: donorId });
     console.log('Direct MongoDB query result:', directQuery ? 'FOUND' : 'NOT FOUND');
     if (directQuery) {
       console.log('Found location:', JSON.stringify(directQuery, null, 2));
     }
-    
+
     // Check if donor exists in locations (live map) using Mongoose
     const locationRecord = await Location.findOne({ donorId: donorId });
     console.log('Mongoose query result:', locationRecord ? 'FOUND' : 'NOT FOUND');
-    
+
     if (!locationRecord && !directQuery) {
       console.log('❌ Not found in either query');
       console.log('Searched for donorId:', donorId);
-      return res.status(404).json({ 
-        success: false, 
-        message: `Donor with ID "${donorId}" not found on live map. Please ensure the donor has shared their location.` 
+      return res.status(404).json({
+        success: false,
+        message: `Donor with ID "${donorId}" not found on live map. Please ensure the donor has shared their location.`
       });
     }
 
@@ -281,9 +368,9 @@ router.get('/verify-location/:donorId', async (req, res) => {
     // Also try to get donor details from registered donors
     const donorRecord = await Donor.findOne({ uniqueId: donorId }, { password: 0 });
     console.log('Donor record found:', donorRecord ? 'YES' : 'NO');
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       location: {
         donorId: location.donorId,
         userName: location.userName,

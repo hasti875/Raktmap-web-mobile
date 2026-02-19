@@ -29,4 +29,7 @@ const responseTokenSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// TTL Index - Auto-delete tokens after 24 hours
+responseTokenSchema.index({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+
 module.exports = mongoose.model('ResponseToken', responseTokenSchema);

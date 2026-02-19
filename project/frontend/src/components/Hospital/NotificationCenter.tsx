@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, MessageSquare, Heart, CheckCircle, Clock, MoreVertical } from 'lucide-react';
 import { Notification } from '../../types';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 // Helper function to decode JWT and extract hospital ID
 const getHospitalIdFromToken = (): string | null => {
@@ -25,10 +26,21 @@ const getHospitalIdFromToken = (): string | null => {
 
 export function NotificationCenter() {
   const [selectedFilter, setSelectedFilter] = useState('all');
-  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { notifications: realtimeNotifications, markAsRead, markAllAsRead, isConnected } = useNotifications();
+  const [historicalNotifications, setHistoricalNotifications] = useState<Notification[]>([]);
   const hospitalId = getHospitalIdFromToken() || 'demo-hospital'; // extract from JWT
+
+  // Combine historical and realtime notifications
+  const allNotifications = [...realtimeNotifications.map((n: any) => ({
+    id: n._id,
+    title: n.title,
+    message: n.message,
+    type: n.type,
+    createdAt: n.createdAt,
+    read: n.read
+  })), ...historicalNotifications];
 
   const fetchNotifications = async () => {
     try {
@@ -36,7 +48,7 @@ export function NotificationCenter() {
       const res = await fetch(`http://localhost:5000/notifications/${hospitalId}`);
       const data = await res.json();
       if (data.success) {
-        setNotifications(data.notifications.map((n: any) => ({
+        setHistoricalNotifications(data.notifications.map((n: any) => ({
           id: n._id,
           title: n.title,
             message: n.message,
@@ -53,30 +65,6 @@ export function NotificationCenter() {
   };
 
   useEffect(() => { fetchNotifications(); }, []);
-  // Real-time SSE subscription
-  useEffect(() => {
-    const source = new EventSource(`http://localhost:5000/notifications/stream/${hospitalId}`);
-    source.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type === 'notification' && data.notification) {
-          setNotifications(prev => [
-            {
-              id: data.notification._id,
-              title: data.notification.title,
-              message: data.notification.message,
-              type: data.notification.type,
-              createdAt: data.notification.createdAt,
-              read: data.notification.read
-            },
-            ...prev
-          ]);
-        }
-      } catch {}
-    };
-    source.onerror = () => { /* silently ignore */ };
-    return () => source.close();
-  }, [hospitalId]);
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -104,7 +92,7 @@ export function NotificationCenter() {
     }
   };
 
-  const filteredNotifications = notifications.filter(notification => {
+  const filteredNotifications = allNotifications.filter(notification => {
     switch (selectedFilter) {
       case 'unread':
         return !notification.read;
@@ -119,19 +107,7 @@ export function NotificationCenter() {
     }
   });
 
-  const markAsRead = async (id: string) => {
-    setNotifications(n => n.map(notif => notif.id === id ? { ...notif, read: true } : notif));
-    try { await fetch(`http://localhost:5000/notifications/${id}/read`, { method: 'POST' }); } catch {}
-  };
-
-  const markAllAsRead = async () => {
-    setNotifications(n => n.map(notif => ({ ...notif, read: true })));
-    try { await fetch(`http://localhost:5000/notifications/${hospitalId}/read-all`, { method: 'POST' }); } catch {}
-  };
-
-  // deleteNotification function removed (not used yet)
-
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = allNotifications.filter(n => !n.read).length;
 
   return (
     <div className="space-y-6">
@@ -153,7 +129,7 @@ export function NotificationCenter() {
           </button>
           <button
             onClick={markAllAsRead}
-            disabled={!notifications.some(n=>!n.read)}
+            disabled={!allNotifications.some(n=>!n.read)}
             className="text-sm text-blue-600 disabled:opacity-40 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
           >
             Mark all as read
@@ -161,15 +137,21 @@ export function NotificationCenter() {
         </div>
       </div>
 
+      {/* Connection Status */}
+      <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
+        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+        <span>{isConnected ? 'Live updates enabled' : 'Reconnecting...'}</span>
+      </div>
+
       {/* Filter Tabs */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
         <div className="flex border-b border-gray-200 dark:border-gray-700">
           {[
-            { key: 'all', label: 'All', count: notifications.length },
+            { key: 'all', label: 'All', count: allNotifications.length },
             { key: 'unread', label: 'Unread', count: unreadCount },
-            { key: 'sms', label: 'SMS', count: notifications.filter(n => n.title.toLowerCase().includes('sms')).length },
-            { key: 'request', label: 'Requests', count: notifications.filter(n => n.title.toLowerCase().includes('request')).length },
-            { key: 'donor', label: 'Donors', count: notifications.filter(n => n.title.toLowerCase().includes('donor')).length }
+            { key: 'sms', label: 'SMS', count: allNotifications.filter(n => n.title.toLowerCase().includes('sms')).length },
+            { key: 'request', label: 'Requests', count: allNotifications.filter(n => n.title.toLowerCase().includes('request')).length },
+            { key: 'donor', label: 'Donors', count: allNotifications.filter(n => n.title.toLowerCase().includes('donor')).length }
           ].map((filter) => (
             <button
               key={filter.key}

@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
       id: h._id.toString(), // alias for frontend
       registeredAt: h.createdAt
     }));
-    
+
     res.json({
       success: true,
       message: `Fetched ${hospitals.length} hospitals`,
@@ -29,7 +29,8 @@ router.get('/', async (req, res) => {
       message: 'Failed to fetch hospitals',
       error: error.message
     });
-// ...existing code...
+  }
+});
 
 // GET single hospital by ID
 router.get('/:id', async (req, res) => {
@@ -128,9 +129,22 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const updateData = { ...req.body };
-    if (updateData.email) updateData.email = updateData.email.toLowerCase();
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
+    }
+
+    // Check if email is being updated and if it's already in use
+    if (updateData.email) {
+      const existing = await Hospital.findOne({
+        email: updateData.email.toLowerCase(),
+        _id: { $ne: req.params.id }
+      });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'Another hospital is already using this email'
+        });
+      }
     }
     const hospital = await Hospital.findByIdAndUpdate(
       req.params.id,
@@ -146,7 +160,7 @@ router.put('/:id', async (req, res) => {
     }
 
     const hospitalObj = { ...hospital.toObject(), id: hospital._id.toString(), registeredAt: hospital.createdAt };
-    
+
     // Create notification for hospital update
     try {
       const notif = await Notification.create({
@@ -159,7 +173,7 @@ router.put('/:id', async (req, res) => {
       });
       broadcastNotification(notif);
     } catch (e) { console.error('Failed to create hospital update notification:', e.message); }
-    
+
     res.json({
       success: true,
       message: 'Hospital updated successfully',
@@ -223,26 +237,34 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to delete hospital', error: error.message });
   }
 });
-  }
-});
 
 // PUT update hospital status
+// PUT update hospital status (general)
 router.put('/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
+
+    // Auto-update isVerified based on status
+    let updateData = { status };
+    if (status === 'active') {
+      updateData.isVerified = true;
+    } else if (status === 'suspended' || status === 'pending') {
+      updateData.isVerified = false;
+    }
+
     const hospital = await Hospital.findByIdAndUpdate(
       req.params.id,
-      { status },
-  { new: true, select: '-password' }
+      updateData,
+      { new: true, select: '-password' }
     );
-    
+
     if (!hospital) {
       return res.status(404).json({
         success: false,
         message: 'Hospital not found'
       });
     }
-    
+
     const hospitalObj = { ...hospital.toObject(), id: hospital._id.toString(), registeredAt: hospital.createdAt };
     res.json({
       success: true,
@@ -259,6 +281,65 @@ router.put('/:id/status', async (req, res) => {
   }
 });
 
+// Admin Approve Hospital
+router.put('/:id/approve', async (req, res) => {
+  try {
+    const { isApproved } = req.body; // Expect boolean true/false
+
+    const updateData = {};
+    if (isApproved) {
+      updateData.isVerified = true;
+      updateData.status = 'active';
+    } else {
+      updateData.isVerified = false;
+      // Optionally set to suspended or keep as pending? 
+      // User asked for "Yes or No" approval. 
+      // If "No", maybe we stay pending or go to suspended. Let's assume suspended for rejection.
+      updateData.status = 'suspended';
+    }
+
+    const hospital = await Hospital.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, select: '-password' }
+    );
+
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hospital not found'
+      });
+    }
+
+    // Notify
+    if (isApproved) {
+      try {
+        const notif = await Notification.create({
+          hospitalId: hospital._id,
+          type: 'success',
+          title: 'Hospital Approved',
+          message: `Hospital ${hospital.name} has been approved and verified.`,
+          read: false,
+          meta: { hospitalId: hospital._id }
+        });
+        broadcastNotification(notif);
+      } catch (e) { console.error('Notif error', e); }
+    }
+
+    res.json({
+      success: true,
+      message: isApproved ? 'Hospital approved successfully' : 'Hospital rejected/suspended',
+      hospital: { ...hospital.toObject(), id: hospital._id.toString() }
+    });
+  } catch (error) {
+    console.error('Error approving hospital:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve hospital',
+      error: error.message
+    });
+  }
+});
 
 
 module.exports = router;

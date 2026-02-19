@@ -46,16 +46,20 @@ const RegisterForm: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await axios.post('/register', form);
+      const response = await axios.post('/register', form, { timeout: 30000 });
       if (response.data.success) {
         setMessage({ type: 'success', text: 'OTP sent to your email! Please check your inbox.' });
         setStep('verify');
       }
     } catch (error: any) {
-      setMessage({ 
-        type: 'error', 
-        text: error.response?.data?.message || 'Registration failed. Please try again.' 
-      });
+      if (error.code === 'ECONNABORTED') {
+        setMessage({ type: 'error', text: 'Request timed out. Please try again.' });
+      } else {
+        setMessage({
+          type: 'error',
+          text: error.response?.data?.message || 'Registration failed. Please try again.'
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -73,25 +77,32 @@ const RegisterForm: React.FC = () => {
         otp: otp,
         password: form.password,
         name: form.name
-      });
+      }, { timeout: 30000 });
 
       if (response.data.success) {
-        setMessage({ type: 'success', text: 'Account created successfully!' });
+        setMessage({ type: 'success', text: response.data.message });
         setStep('success');
-        
-        // Auto login after successful registration
-        setTimeout(async () => {
-          try {
-            await login(form.email, form.password);
-          } catch (loginError) {
+
+        // If registration is pending approval, redirect to login after delay
+        if (response.data.pending) {
+          setTimeout(() => {
             navigate("/login");
-          }
-        }, 2000);
+          }, 3000);
+        } else {
+          // Auto login after successful registration (if not pending)
+          setTimeout(async () => {
+            try {
+              await login(form.email, form.password);
+            } catch (loginError) {
+              navigate("/login");
+            }
+          }, 2000);
+        }
       }
     } catch (error: any) {
-      setMessage({ 
-        type: 'error', 
-        text: error.response?.data?.message || 'Invalid OTP. Please try again.' 
+      setMessage({
+        type: 'error',
+        text: error.response?.data?.message || 'Invalid OTP. Please try again.'
       });
     } finally {
       setLoading(false);
@@ -109,9 +120,9 @@ const RegisterForm: React.FC = () => {
         setMessage({ type: 'success', text: 'New OTP sent to your email!' });
       }
     } catch (error: any) {
-      setMessage({ 
-        type: 'error', 
-        text: error.response?.data?.message || 'Failed to resend OTP.' 
+      setMessage({
+        type: 'error',
+        text: error.response?.data?.message || 'Failed to resend OTP.'
       });
     } finally {
       setLoading(false);
@@ -197,16 +208,14 @@ const RegisterForm: React.FC = () => {
             </div>
 
             {message.text && (
-              <div className={`rounded-lg p-3 ${
-                message.type === 'success' 
-                  ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' 
-                  : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-              }`}>
-                <p className={`text-sm ${
-                  message.type === 'success' 
-                    ? 'text-green-600 dark:text-green-400' 
-                    : 'text-red-600 dark:text-red-400'
+              <div className={`rounded-lg p-3 ${message.type === 'success'
+                ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
                 }`}>
+                <p className={`text-sm ${message.type === 'success'
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-red-600 dark:text-red-400'
+                  }`}>
                   {message.text}
                 </p>
               </div>
@@ -214,9 +223,10 @@ const RegisterForm: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center space-x-2"
+              disabled={loading}
+              className={`w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center space-x-2 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <span>Send Verification Code</span>
+              <span>{loading ? 'Sending...' : 'Send Verification Code'}</span>
             </button>
           </form>
         )}
@@ -246,16 +256,14 @@ const RegisterForm: React.FC = () => {
             </div>
 
             {message.text && (
-              <div className={`rounded-lg p-3 ${
-                message.type === 'success' 
-                  ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' 
-                  : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-              }`}>
-                <p className={`text-sm ${
-                  message.type === 'success' 
-                    ? 'text-green-600 dark:text-green-400' 
-                    : 'text-red-600 dark:text-red-400'
+              <div className={`rounded-lg p-3 ${message.type === 'success'
+                ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
                 }`}>
+                <p className={`text-sm ${message.type === 'success'
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-red-600 dark:text-red-400'
+                  }`}>
                   {message.text}
                 </p>
               </div>
@@ -290,9 +298,16 @@ const RegisterForm: React.FC = () => {
                 <CheckCircle className="h-16 w-16 text-green-600 dark:text-green-400" />
               </div>
             </div>
-            <p className="text-gray-600 dark:text-gray-400">
-              Logging you in...
-            </p>
+            {message.text && (
+              <p className="text-gray-600 dark:text-gray-400">
+                {message.text}
+              </p>
+            )}
+            {!message.text.includes('pending') && (
+              <p className="text-gray-600 dark:text-gray-400">
+                Redirecting to login...
+              </p>
+            )}
           </div>
         )}
 

@@ -1,6 +1,8 @@
 require('dotenv').config();
 const Hospital = require('./models/Hospital');
+const Donor = require('./models/Donor');
 const Admin = require('./models/Admin');
+const User = require('./models/User');
 const OTP = require('./models/OTP');
 const express = require('express');
 const cors = require('cors');
@@ -8,6 +10,12 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const hpp = require('hpp');
+const { body, validationResult } = require('express-validator');
 const bloodRequestsRouter = require('./routes/bloodRequests');
 const donorResponseRouter = require('./routes/donorResponse');
 const donorsRouter = require('./routes/donors');
@@ -16,9 +24,25 @@ const tokenResponseRouter = require('./routes/tokenResponse');
 const donationHistoryRouter = require('./routes/donationHistory');
 const settingsRouter = require('./routes/settings');
 const markDonationRouter = require('./routes/markDonation');
+const bloodStockRouter = require('./routes/bloodStock');
+const usersRouter = require('./routes/users');
 const Notification = require('./models/Notification');
 const { addClient: addNotificationClient, broadcastNotification } = require('./utils/notificationStream');
 const { generateOTP, sendRegistrationOTP, sendPasswordResetOTP } = require('./services/emailService');
+const { 
+  requireAdmin, 
+  requireHospital, 
+  requireDonor, 
+  requireUser, 
+  requireUserOrDonor,
+  validateRegistration,
+  validateLogin,
+  validateOTP,
+  validateResetOTP,
+  validatePasswordChange,
+  validateForgotPassword,
+  validatePasswordReset
+} = require('./middleware/security');
 
 // Helper function to create admin notifications
 const createAdminNotification = async (title, message, type = 'info', relatedData = {}) => {
@@ -41,17 +65,123 @@ const createAdminNotification = async (title, message, type = 'info', relatedDat
   }
 };
 
+// Helper function to normalize phone numbers for comparison
+const normalizePhone = (phone) => {
+  if (!phone) return '';
+  // Remove all non-digit characters
+  let normalized = phone.toString().replace(/[^\d]/g, '');
+  // Remove country code prefixes (91 for India)
+  if (normalized.startsWith('91') && normalized.length > 10) {
+    normalized = normalized.substring(2);
+  }
+  return normalized;
+};
+
 const app = express();
-app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://donor-location-tracker.onrender.com'
-  ],
-  credentials: true
+
+// ==================== SECURITY MIDDLEWARE ====================
+
+// 1. Security Headers (Helmet)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false
 }));
-// Increase JSON limit to support larger bulk imports
+
+// 2. CORS Configuration
+const allowedOrigins = process.env.CORS_ORIGINS 
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+  : ['http://localhost:5173', 'http://localhost:19006', 'http://localhost:5000']; // Fallback for development
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn(`⚠️ CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Cache-Control',
+    'Pragma',
+    'Expires',
+    'If-Modified-Since',
+    'X-CSRF-Token'
+  ],
+  exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}));
+
+// 3. Body Parser
 app.use(bodyParser.json({ limit: '2mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '2mb' }));
+
+// 4. Data Sanitization against NoSQL Injection
+app.use(mongoSanitize());
+
+// 5. Data Sanitization against XSS
+app.use(xss());
+
+// 6. Prevent HTTP Parameter Pollution
+app.use(hpp());
+
+// 7. General Rate Limiter (for all API routes)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per IP per window
+  message: { success: false, message: 'Too many requests from this IP, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// 8. Strict Rate Limiter for Authentication Routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 login attempts per window
+  message: { success: false, message: 'Too many login attempts, please try again after 15 minutes' },
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// 9. SMS/Notification Rate Limiter
+const smsLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 10 SMS/notification requests per hour
+  message: { success: false, message: 'Too many SMS requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// 10. Disable x-powered-by header
+app.disable('x-powered-by');
+
+console.log('✅ Security middleware initialized');
+
+// ==================== END SECURITY MIDDLEWARE ====================
 
 const mongoOptions = {
   serverSelectionTimeoutMS: 30000,
@@ -150,6 +280,61 @@ db.once('open', async () => {
   } catch (error) {
     console.error('⚠️  Failed to start location watcher:', error.message);
   }
+
+  // 🔄 Start Batch SMS Scheduler (every 1 minute)
+  try {
+    const { sendNextBatch } = require('./controllers/bloodRequestController');
+    const BloodRequest = require('./models/BloodRequest');
+
+    const checkPendingBatches = async () => {
+      try {
+        if (mongoose.connection.readyState !== 1) return; // DB not ready
+
+        // Find pending requests that are "in progress"
+        const pendingRequests = await BloodRequest.find({
+          status: 'pending',
+          batchInProgress: true,
+          $expr: { $lt: ['$confirmedUnits', '$quantity'] }
+        });
+
+        if (pendingRequests.length > 0) {
+          // console.log(`\n⏰ [Scheduler] Checking ${pendingRequests.length} in-progress requests...`);
+        }
+
+        const now = Date.now();
+
+        for (const request of pendingRequests) {
+          if (!request.batchSentAt) continue;
+
+          const windowMinutes = request.responseWindow || 2;
+          const sentTime = new Date(request.batchSentAt).getTime();
+          const elapsedMinutes = (now - sentTime) / (1000 * 60);
+
+          if (elapsedMinutes >= windowMinutes) {
+            console.log(`[Scheduler] Response window closed (${elapsedMinutes.toFixed(1)}/${windowMinutes} mins) for request ${request._id}. Next batch...`);
+
+            request.batchInProgress = false;
+            await request.save();
+
+            await sendNextBatch(request._id);
+          }
+        }
+
+      } catch (err) {
+        console.error('[Scheduler] Error checking pending batches:', err.message);
+      }
+    };
+
+    // Run every minute
+    setInterval(checkPendingBatches, 60 * 1000);
+    console.log('✅ Batch SMS Scheduler started (1 min interval)');
+
+    // Run once after short delay to catch up on missed batches
+    setTimeout(checkPendingBatches, 10000);
+
+  } catch (error) {
+    console.error('⚠️  Failed to start Batch Scheduler:', error.message);
+  }
 });
 
 /* ============================
@@ -166,28 +351,32 @@ function authenticateToken(req, res, next) {
   if (!token) return res.sendStatus(401);
 
   jwt.verify(token, SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err) return res.sendStatus(401); // Changed from 403 to 401 for better session handling
     req.user = user;
     next();
   });
 }
 
 /* ============================
-   4. Routes
+   4. Routes (with Rate Limiting)
 ============================ */
-app.use('/blood-requests', authenticateToken, bloodRequestsRouter);
-app.use('/donor-response', authenticateToken, donorResponseRouter);
-app.use('/donors', authenticateToken, donorsRouter);
-app.use('/hospitals', authenticateToken, hospitalsRouter);
-app.use('/donation-history', authenticateToken, donationHistoryRouter);
-app.use('/admin', authenticateToken, settingsRouter);
-app.use('/api', authenticateToken, markDonationRouter);
-app.use('/', tokenResponseRouter); // Public route for SMS responses
 
-// Public route for direct location sharing from frontend
-app.post('/api/donor-location', async (req, res) => {
+// Apply general rate limiting to all API routes
+app.use('/blood-requests', apiLimiter, authenticateToken, bloodRequestsRouter);
+app.use('/donor-response', apiLimiter, authenticateToken, donorResponseRouter);
+app.use('/donors', apiLimiter, authenticateToken, donorsRouter);
+app.use('/hospitals', apiLimiter, authenticateToken, hospitalsRouter);
+app.use('/donation-history', apiLimiter, authenticateToken, donationHistoryRouter);
+app.use('/admin', apiLimiter, authenticateToken, settingsRouter);
+app.use('/api', apiLimiter, authenticateToken, markDonationRouter);
+app.use('/blood-stock', apiLimiter, bloodStockRouter); // Blood stock management (public + authenticated routes)
+app.use('/users', apiLimiter, authenticateToken, usersRouter); // User management (become-donor, stop-donating)
+app.use('/', tokenResponseRouter); // Public route for SMS responses (no rate limit for SMS webhooks)
+
+// Authenticated route for location sharing from frontend
+app.post('/api/donor-location', authenticateToken, async (req, res) => {
   try {
-    console.log('=== DIRECT LOCATION SHARING FROM FRONTEND ===');
+    console.log('=== AUTHENTICATED LOCATION SHARING FROM FRONTEND ===');
     const { requestId, donorId, lat, lng } = req.body;
 
     console.log('Received data:', { requestId, donorId, lat, lng });
@@ -204,6 +393,16 @@ app.post('/api/donor-location', async (req, res) => {
 
     if (!bloodRequest) {
       return res.status(404).json({ error: 'Blood request not found' });
+    }
+
+    // Check if request is already fulfilled
+    if (bloodRequest.status === 'fulfilled' || bloodRequest.status === 'cancelled' || bloodRequest.status === 'completed') {
+      console.log(`❌ Location rejected: Request ${requestId} is ${bloodRequest.status}`);
+      return res.status(400).json({
+        success: false,
+        error: 'Request already fulfilled',
+        message: 'Thank you for your willingness to help, but this blood request has already been fulfilled.'
+      });
     }
 
     console.log('Found blood request:', {
@@ -278,8 +477,8 @@ app.get('/validate-token', authenticateToken, (req, res) => {
   });
 });
 
-// Public admin routes for dashboard (temporary - should be secured later)
-app.get('/admin/hospitals', async (req, res) => {
+// Admin routes for dashboard (secured)
+app.get('/admin/hospitals', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('Fetching hospitals for admin dashboard...');
     const Hospital = require('./models/Hospital');
@@ -300,7 +499,7 @@ app.get('/admin/hospitals', async (req, res) => {
   }
 });
 
-app.get('/admin/donors', async (req, res) => {
+app.get('/admin/donors', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('Fetching donors for admin dashboard...');
     const Donor = require('./models/Donor');
@@ -322,7 +521,7 @@ app.get('/admin/donors', async (req, res) => {
 });
 
 // Admin donor CRUD operations
-app.post('/admin/donors', async (req, res) => {
+app.post('/admin/donors', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Donor = require('./models/Donor');
     const bcrypt = require('bcryptjs');
@@ -359,7 +558,7 @@ app.post('/admin/donors', async (req, res) => {
   }
 });
 
-app.put('/admin/donors/:id', async (req, res) => {
+app.put('/admin/donors/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Donor = require('./models/Donor');
     const bcrypt = require('bcryptjs');
@@ -398,7 +597,7 @@ app.put('/admin/donors/:id', async (req, res) => {
   }
 });
 
-app.delete('/admin/donors/:id', async (req, res) => {
+app.delete('/admin/donors/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Donor = require('./models/Donor');
 
@@ -425,7 +624,7 @@ app.delete('/admin/donors/:id', async (req, res) => {
 });
 
 // Admin analytics endpoints
-app.get('/admin/analytics/stats', async (req, res) => {
+app.get('/admin/analytics/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('Fetching admin analytics stats...');
     const BloodRequest = require('./models/BloodRequest');
@@ -469,10 +668,10 @@ app.get('/admin/analytics/stats', async (req, res) => {
   }
 });
 
-// Get donors responded count (public endpoint)
-app.get('/admin/analytics/donors-responded', async (req, res) => {
+// Get donors responded count (secured endpoint)
+app.get('/admin/analytics/donors-responded', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    console.log('=== Fetching donors responded count (public endpoint) ===');
+    console.log('=== Fetching donors responded count (secured endpoint) ===');
 
     // Use direct MongoDB connection to get completed donations
     const mongoose = require('mongoose');
@@ -497,7 +696,7 @@ app.get('/admin/analytics/donors-responded', async (req, res) => {
 });
 
 // Get request trends with flexible time periods
-app.get('/admin/analytics/request-trends', async (req, res) => {
+app.get('/admin/analytics/request-trends', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const BloodRequest = require('./models/BloodRequest');
 
@@ -635,9 +834,9 @@ app.get('/admin/analytics/request-trends', async (req, res) => {
 });
 
 // Get donors response by blood type (actual donations from DonationHistory)
-app.get('/admin/analytics/donors-by-blood-type', async (req, res) => {
+app.get('/admin/analytics/donors-by-blood-type', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    console.log('=== Fetching donors by blood type (public endpoint) ===');
+    console.log('=== Fetching donors by blood type (secured endpoint) ===');
 
     // Use direct MongoDB connection to ensure we get the right data
     const mongoose = require('mongoose');
@@ -673,7 +872,7 @@ app.get('/admin/analytics/donors-by-blood-type', async (req, res) => {
 });
 
 // Get fulfillment rate breakdown
-app.get('/admin/analytics/fulfillment-breakdown', async (req, res) => {
+app.get('/admin/analytics/fulfillment-breakdown', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const BloodRequest = require('./models/BloodRequest');
     const statusCounts = await BloodRequest.aggregate([
@@ -713,7 +912,7 @@ app.get('/admin/analytics/fulfillment-breakdown', async (req, res) => {
 });
 
 // Get response times by hour
-app.get('/admin/analytics/response-times-by-hour', async (req, res) => {
+app.get('/admin/analytics/response-times-by-hour', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const DonorResponse = require('./models/DonorLocationResponse');
     const responses = await DonorResponse.find({}).populate('requestId');
@@ -782,7 +981,7 @@ app.get('/admin/analytics/response-times-by-hour', async (req, res) => {
 });
 
 // Admin notification routes
-app.get('/admin/notifications', async (req, res) => {
+app.get('/admin/notifications', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('Fetching admin notifications...');
     const Notification = require('./models/Notification');
@@ -841,7 +1040,7 @@ app.get('/admin/notifications', async (req, res) => {
   }
 });
 
-app.post('/admin/notifications/:id/read', async (req, res) => {
+app.post('/admin/notifications/:id/read', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Notification = require('./models/Notification');
     const notification = await Notification.findByIdAndUpdate(
@@ -871,7 +1070,7 @@ app.post('/admin/notifications/:id/read', async (req, res) => {
   }
 });
 
-app.post('/admin/notifications/read-all', async (req, res) => {
+app.post('/admin/notifications/read-all', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Notification = require('./models/Notification');
     const result = await Notification.updateMany(
@@ -893,7 +1092,7 @@ app.post('/admin/notifications/read-all', async (req, res) => {
   }
 });
 
-app.post('/admin/notifications/create', async (req, res) => {
+app.post('/admin/notifications/create', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Notification = require('./models/Notification');
     const { title, message, type = 'info', hospitalId, donorId, bloodRequestId } = req.body;
@@ -939,7 +1138,7 @@ app.post('/admin/notifications/create', async (req, res) => {
 });
 
 // Seed initial admin notifications (for testing purposes)
-app.post('/admin/notifications/seed', async (req, res) => {
+app.post('/admin/notifications/seed', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Notification = require('./models/Notification');
 
@@ -997,7 +1196,7 @@ app.post('/admin/notifications/seed', async (req, res) => {
 });
 
 // Admin hospital CRUD operations
-app.post('/admin/hospitals', async (req, res) => {
+app.post('/admin/hospitals', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Hospital = require('./models/Hospital');
     const bcrypt = require('bcryptjs');
@@ -1034,7 +1233,7 @@ app.post('/admin/hospitals', async (req, res) => {
   }
 });
 
-app.put('/admin/hospitals/:id', async (req, res) => {
+app.put('/admin/hospitals/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Hospital = require('./models/Hospital');
     const bcrypt = require('bcryptjs');
@@ -1073,7 +1272,7 @@ app.put('/admin/hospitals/:id', async (req, res) => {
   }
 });
 
-app.delete('/admin/hospitals/:id', async (req, res) => {
+app.delete('/admin/hospitals/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Hospital = require('./models/Hospital');
 
@@ -1099,12 +1298,18 @@ app.delete('/admin/hospitals/:id', async (req, res) => {
   }
 });
 
-// ================= Notification Endpoints (basic) =================
-// List notifications for hospital (public temporary; add auth later)
-app.get('/notifications/:hospitalId', async (req, res) => {
+// ================= Notification Endpoints (secured) =================
+// List notifications for hospital (authenticated)
+app.get('/notifications/:hospitalId', authenticateToken, async (req, res) => {
   try {
     const { hospitalId } = req.params;
     const { filter } = req.query; // optional: unread
+    
+    // Verify user can only access their own notifications
+    if (req.user.role === 'hospital' && req.user.id !== hospitalId) {
+      return res.status(403).json({ success: false, message: 'Access denied: Cannot view other hospital notifications' });
+    }
+    
     // Gracefully handle placeholder / demo ids that are not valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(hospitalId)) {
       return res.json({ success: true, notifications: [], note: 'hospitalId not a valid ObjectId; returning empty list' });
@@ -1119,8 +1324,8 @@ app.get('/notifications/:hospitalId', async (req, res) => {
   }
 });
 
-// Mark one as read
-app.post('/notifications/:id/read', async (req, res) => {
+// Mark one as read (authenticated)
+app.post('/notifications/:id/read', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await Notification.findByIdAndUpdate(id, { read: true }, { new: true });
@@ -1131,10 +1336,16 @@ app.post('/notifications/:id/read', async (req, res) => {
   }
 });
 
-// Mark all read for hospital
-app.post('/notifications/:hospitalId/read-all', async (req, res) => {
+// Mark all read for hospital (authenticated)
+app.post('/notifications/:hospitalId/read-all', authenticateToken, async (req, res) => {
   try {
     const { hospitalId } = req.params;
+    
+    // Verify user can only mark their own notifications as read
+    if (req.user.role === 'hospital' && req.user.id !== hospitalId) {
+      return res.status(403).json({ success: false, message: 'Access denied: Cannot modify other hospital notifications' });
+    }
+    
     if (!mongoose.Types.ObjectId.isValid(hospitalId)) {
       return res.json({ success: true, modified: 0, note: 'hospitalId not a valid ObjectId; nothing to mark' });
     }
@@ -1189,8 +1400,8 @@ app.get('/notifications/debug/connections', (req, res) => {
   });
 });
 
-// Bulk import donors (CSV parsed client-side -> JSON). Public for now; should add auth later.
-app.post('/admin/donors/import', async (req, res) => {
+// Bulk import donors (CSV parsed client-side -> JSON). Secured with admin auth.
+app.post('/admin/donors/import', authenticateToken, requireAdmin, async (req, res) => {
   try {
     console.log('➡️  /admin/donors/import request received');
     const Donor = require('./models/Donor');
@@ -1331,7 +1542,7 @@ app.post('/admin/donors/import', async (req, res) => {
 });
 
 // Bulk delete donors: provide { all: true } to delete all, or { ids: [..] }
-app.delete('/admin/donors', async (req, res) => {
+app.delete('/admin/donors', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const Donor = require('./models/Donor');
     const { all, ids } = req.body || {};
@@ -1371,8 +1582,8 @@ app.delete('/admin/donors', async (req, res) => {
   }
 });
 
-// Public route for donation history
-app.get('/donation-history', async (req, res) => {
+// Authenticated route for donation history
+app.get('/donation-history', authenticateToken, async (req, res) => {
   try {
     const BloodRequest = require('./models/BloodRequest');
     const bloodRequests = await BloodRequest.find({})
@@ -1389,14 +1600,20 @@ app.get('/donation-history', async (req, res) => {
 /* ============================
    5. Register - Send OTP
 ============================ */
-app.post('/register', async (req, res) => {
+app.post('/register', authLimiter, validateRegistration, async (req, res) => {
   try {
     console.log("Received /register request", req.body);
-    let { email, password, name } = req.body;
+    let { email, password, name, role, phone } = req.body;
 
-    if (!email || !password || !name) {
-      return res.status(400).json({ message: 'All fields required' });
+    if (!email || !password || !name || !phone) {
+      return res.status(400).json({ message: 'All fields including phone number are required' });
     }
+
+    // Sanitize inputs
+    email = email.trim().toLowerCase();
+    name = name.trim();
+    if (phone) phone = phone.trim();
+    if (role) role = role.trim();
 
     // Check if MongoDB is connected
     if (mongoose.connection.readyState !== 1) {
@@ -1408,13 +1625,55 @@ app.post('/register', async (req, res) => {
 
     email = email.toLowerCase();
 
-    // Check if user already exists
-    const existingHospital = await Hospital.findOne({ email }).maxTimeMS(10000);
-    const existingAdmin = await Admin.findOne({ email }).maxTimeMS(10000);
+    console.log('Checking for existing users with:', { email, phone, role });
 
+    // Normalize phone for comparison
+    const normalizedPhone = normalizePhone(phone);
+    console.log('Normalized phone:', normalizedPhone);
+
+    // Check if user already exists in ANY collection
+    const [existingHospital, existingAdmin, allDonors] = await Promise.all([
+      Hospital.findOne({ email }).maxTimeMS(10000),
+      Admin.findOne({ email }).maxTimeMS(10000),
+      Donor.find({}).select('email phone').lean().maxTimeMS(10000)
+    ]);
+
+    // Find donor by email or normalized phone
+    const existingDonor = allDonors.find(d =>
+      d.email === email || (d.phone && normalizePhone(d.phone) === normalizedPhone)
+    );
+
+    console.log('Existing records found:', {
+      hospital: !!existingHospital,
+      admin: !!existingAdmin,
+      donor: !!existingDonor
+    });
+
+    // Check email conflicts
     if (existingHospital || existingAdmin) {
-      return res.status(409).json({ message: 'User already exists' });
+      console.log('❌ Email conflict with hospital/admin');
+      return res.status(409).json({
+        message: 'This email is already registered'
+      });
     }
+
+    // Check email/phone conflicts in Donor collection (includes both users and donors)
+    if (existingDonor) {
+      if (existingDonor.email === email) {
+        console.log('❌ Email conflict with existing account:', existingDonor.email);
+        return res.status(409).json({
+          message: 'This email is already registered'
+        });
+      }
+      if (normalizedPhone && normalizePhone(existingDonor.phone) === normalizedPhone) {
+        console.log('❌ Phone conflict with existing account:', existingDonor.phone, '->', normalizePhone(existingDonor.phone));
+        return res.status(409).json({
+          message: 'This phone number is already registered. Please use a different number.'
+        });
+      }
+    }
+
+    console.log('✅ No conflicts found, proceeding with registration');
 
     // Generate OTP
     const otp = generateOTP();
@@ -1462,13 +1721,20 @@ app.post('/register', async (req, res) => {
 /* ============================
    5.1 Verify Registration OTP
 ============================ */
-app.post('/verify-registration', async (req, res) => {
+app.post('/verify-registration', authLimiter, validateOTP, async (req, res) => {
   try {
-    const { email, otp, password, name } = req.body;
+    let { email, otp, password, name, role, phone, bloodGroup, birthdate } = req.body;
 
     if (!email || !otp || !password || !name) {
       return res.status(400).json({ message: 'All fields required' });
     }
+
+    // Sanitize inputs
+    email = email.trim().toLowerCase();
+    name = name.trim();
+    if (phone) phone = phone.trim();
+    if (role) role = role.trim();
+    if (otp) otp = otp.trim();
 
     const emailLower = email.toLowerCase();
 
@@ -1488,34 +1754,151 @@ app.post('/verify-registration', async (req, res) => {
     }
 
     // Check if user already exists (double check)
-    const existingHospital = await Hospital.findOne({ email: emailLower });
-    const existingAdmin = await Admin.findOne({ email: emailLower });
+    if (role === 'donor') {
+      // Validate blood group for donors
+      if (!bloodGroup) {
+        return res.status(400).json({ message: 'Blood group is required for donors' });
+      }
 
-    if (existingHospital || existingAdmin) {
+      // Normalize phone for comparison
+      const normalizedPhone = normalizePhone(phone);
+      console.log('Verify registration - checking donor with normalized phone:', normalizedPhone);
+
+      // Get all existing records to check with normalized phone
+      const allDonors = await Donor.find({}).select('email phone').lean();
+
+      // Find donor by email or normalized phone
+      const existingDonor = allDonors.find(d =>
+        d.email === emailLower || (d.phone && normalizePhone(d.phone) === normalizedPhone)
+      );
+
+      if (existingDonor) {
+        await OTP.deleteMany({ email: emailLower, type: 'registration' });
+        const reason = existingDonor.email === emailLower ? 'email' : 'phone number';
+        console.log('❌ Donor already exists with this', reason);
+        return res.status(409).json({
+          message: `An account already exists with this ${reason}`
+        });
+      }
+
+      // Create Donor account with donor role
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const donor = new Donor({
+        email: emailLower,
+        password: hashedPassword,
+        name,
+        phone,
+        bloodGroup,
+        birthdate: birthdate ? new Date(birthdate) : undefined,
+        role: 'donor',              // ← Donor role
+        willingToDonate: true,      // ← Willing to donate
+        isActive: true
+      });
+      await donor.save();
+
+      // Mark OTP as verified and delete
       await OTP.deleteMany({ email: emailLower, type: 'registration' });
-      return res.status(409).json({ message: 'User already exists' });
+
+      console.log('✅ Donor registered:', emailLower);
+
+      res.status(201).json({
+        success: true,
+        message: 'Registration successful! You can now login.',
+        pending: false
+      });
+
+    } else if (role === 'user') {
+      // Normalize phone for comparison
+      const normalizedPhone = normalizePhone(phone);
+      console.log('Verify registration - checking user with normalized phone:', normalizedPhone);
+
+      // Get all existing records to check with normalized phone
+      const allDonors = await Donor.find({}).select('email phone').lean();
+
+      // Find existing account by email or normalized phone
+      const existingDonor = allDonors.find(d =>
+        d.email === emailLower || (d.phone && normalizePhone(d.phone) === normalizedPhone)
+      );
+
+      if (existingDonor) {
+        await OTP.deleteMany({ email: emailLower, type: 'registration' });
+        const reason = existingDonor.email === emailLower ? 'email' : 'phone number';
+        console.log('❌ Account already exists with this', reason);
+        return res.status(409).json({
+          message: `An account already exists with this ${reason}`
+        });
+      }
+
+      // Create User account (in Donor collection with user role)
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const user = new Donor({
+        email: emailLower,
+        password: hashedPassword,
+        name,
+        phone,
+        bloodGroup: bloodGroup || null,  // Optional for users
+        birthdate: birthdate ? new Date(birthdate) : undefined,
+        role: 'user',               // ← User role
+        willingToDonate: false,     // ← Not willing to donate (yet)
+        isActive: true
+      });
+      await user.save();
+
+      // Mark OTP as verified and delete
+      await OTP.deleteMany({ email: emailLower, type: 'registration' });
+
+      console.log('✅ User registered:', emailLower);
+
+      res.status(201).json({
+        success: true,
+        message: 'Registration successful! You can now login.',
+        pending: false
+      });
+
+    } else if (role === 'hospital') {
+      // Hospital Registration (Explicit)
+      const existingHospital = await Hospital.findOne({ email: emailLower });
+      const existingAdmin = await Admin.findOne({ email: emailLower });
+
+      if (existingHospital || existingAdmin) {
+        await OTP.deleteMany({ email: emailLower, type: 'registration' });
+        return res.status(409).json({ message: 'User already exists' });
+      }
+
+      // Create the hospital account (pending admin approval)
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const hospital = new Hospital({
+        email: emailLower,
+        password: hashedPassword,
+        name,
+        isVerified: false,  // Requires admin approval
+        status: 'pending'   // Pending until admin approves
+      });
+      await hospital.save();
+
+      // Create admin notification for new hospital registration
+      await createAdminNotification(
+        'New Hospital Registration',
+        `Hospital "${name}" (${emailLower}) has registered and is awaiting approval.`,
+        'info',
+        { hospitalId: hospital._id }
+      );
+
+      // Mark OTP as verified and delete
+      await OTP.deleteMany({ email: emailLower, type: 'registration' });
+
+      console.log('✅ Hospital registered (pending approval):', emailLower);
+
+      res.status(201).json({
+        success: true,
+        message: 'Registration successful! Your account is pending admin approval. You will be able to login once approved.',
+        pending: true
+      });
+    } else {
+      console.log('❌ Unknown role attempted registration:', role);
+      return res.status(400).json({ message: 'Invalid user role provided' });
     }
 
-    // Create the hospital account
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const hospital = new Hospital({
-      email: emailLower,
-      password: hashedPassword,
-      name,
-      isVerified: true,
-      status: 'active'
-    });
-    await hospital.save();
-
-    // Mark OTP as verified and delete
-    await OTP.deleteMany({ email: emailLower, type: 'registration' });
-
-    console.log('✅ Hospital registered and verified:', emailLower);
-
-    res.status(201).json({
-      success: true,
-      message: 'Registration successful! You can now log in.'
-    });
   } catch (err) {
     console.error("Verification error:", err);
     res.status(500).json({ message: "Verification failed. Please try again." });
@@ -1525,7 +1908,7 @@ app.post('/verify-registration', async (req, res) => {
 /* ============================
    5.2 Resend Registration OTP
 ============================ */
-app.post('/resend-otp', async (req, res) => {
+app.post('/resend-otp', authLimiter, validateForgotPassword, async (req, res) => {
   try {
     const { email, name } = req.body;
 
@@ -1570,7 +1953,7 @@ app.post('/resend-otp', async (req, res) => {
 /* ============================
    6. Login
 ============================ */
-app.post('/login', async (req, res) => {
+app.post('/login', authLimiter, validateLogin, async (req, res) => {
   try {
     let { email, password } = req.body;
     email = email.toLowerCase();
@@ -1583,9 +1966,18 @@ app.post('/login', async (req, res) => {
       });
     }
 
-    // Check both Admin and Hospital collections to determine role automatically
+    // Check Admin, Donor collections (Donor collection now contains both users and donors)
     let user = await Admin.findOne({ email }).maxTimeMS(10000);
     let role = 'admin';
+
+    if (!user) {
+      // Donor collection now contains all users (both role='user' and role='donor')
+      user = await Donor.findOne({ email }).maxTimeMS(10000);
+      if (user) {
+        // Use the role field from the Donor document
+        role = user.role || 'donor'; // Default to 'donor' for backwards compatibility
+      }
+    }
 
     if (!user) {
       user = await Hospital.findOne({ email }).maxTimeMS(10000);
@@ -1601,13 +1993,31 @@ app.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    // Check if hospital is verified (only for hospital role)
+    if (role === 'hospital' && !user.isVerified) {
+      return res.status(403).json({
+        message: 'Your account is pending admin approval. Please wait for verification.',
+        pending: true
+      });
+    }
+
     const token = jwt.sign(
       { id: user._id, email: user.email, role: role, name: user.name },
       SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
-    res.json({ token, role, name: user.name });
+    res.json({
+      token,
+      role,
+      name: user.name,
+      id: user._id,
+      isProfileComplete: user.isProfileComplete || false,
+      phone: user.phone || '',
+      willingToDonate: user.willingToDonate || false,
+      bloodGroup: user.bloodGroup || null,
+      isActive: user.isActive !== undefined ? user.isActive : true
+    });
   } catch (err) {
     console.error("Login error:", err);
     if (err.name === 'MongooseError' || err.name === 'MongoNetworkError') {
@@ -1623,7 +2033,7 @@ app.post('/login', async (req, res) => {
 /* ============================
    6.1 Forgot Password - Send OTP
 ============================ */
-app.post('/forgot-password', async (req, res) => {
+app.post('/forgot-password', authLimiter, validateForgotPassword, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -1689,7 +2099,7 @@ app.post('/forgot-password', async (req, res) => {
 /* ============================
    6.2 Verify Password Reset OTP
 ============================ */
-app.post('/verify-reset-otp', async (req, res) => {
+app.post('/verify-reset-otp', authLimiter, validateResetOTP, async (req, res) => {
   try {
     const { email, otp } = req.body;
 
@@ -1731,7 +2141,7 @@ app.post('/verify-reset-otp', async (req, res) => {
 /* ============================
    6.3 Reset Password
 ============================ */
-app.post('/reset-password', async (req, res) => {
+app.post('/reset-password', authLimiter, validatePasswordReset, async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
 
@@ -1790,16 +2200,122 @@ app.post('/reset-password', async (req, res) => {
 });
 
 /* ============================
+   6.3 Change Password (Authenticated)
+============================ */
+app.post('/change-password', authenticateToken, validatePasswordChange, async (req, res) => {
+  try {
+    const { email, currentPassword, newPassword } = req.body;
+
+    if (!email || !currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Email, current password, and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Find user in all collections (Donor collection now contains both users and donors)
+    let user = null;
+    let userModel = null;
+
+    user = await Donor.findOne({ email: emailLower });
+    if (user) userModel = Donor;
+
+    if (!user) {
+      user = await Hospital.findOne({ email: emailLower });
+      if (user) userModel = Hospital;
+    }
+
+    if (!user) {
+      user = await Admin.findOne({ email: emailLower });
+      if (user) userModel = Admin;
+    }
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    // Hash and update new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    console.log('✅ Password changed successfully for:', emailLower);
+
+    res.status(200).json({
+      success: true,
+      message: 'Password changed successfully!'
+    });
+  } catch (err) {
+    console.error("Change password error:", err);
+    res.status(500).json({ message: "Failed to change password. Please try again." });
+  }
+});
+
+/* ============================
+   6.4 Update Profile (Authenticated)
+============================ */
+app.put('/users/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if the user is updating their own profile
+    if (req.user.id !== id) {
+      return res.status(403).json({ message: 'Access denied. You can only update your own profile.' });
+    }
+
+    // Determine user role and find model
+    // Note: Both 'user' and 'donor' roles use the Donor model (single collection architecture)
+    let userModel = null;
+    switch (req.user.role) {
+      case 'donor': 
+      case 'user': 
+        userModel = Donor; 
+        break;
+      case 'hospital': userModel = Hospital; break;
+      case 'admin': userModel = Admin; break;
+      default: return res.status(400).json({ message: 'Invalid user role' });
+    }
+
+    // Find and update user with all fields from req.body
+    const updatedUser = await userModel.findByIdAndUpdate(
+      id,
+      { $set: req.body },
+      { new: true, runValidators: true, select: '-password' }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log(`✅ Profile updated successfully for ${req.user.role}:`, updatedUser.email);
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully!',
+      user: updatedUser
+    });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({ message: "Failed to update profile. Please try again." });
+  }
+});
+
+/* ============================
    7. Hospital Profile & Dashboard Routes
 ============================ */
 
 // Get hospital profile/dashboard data
-app.get('/hospital/profile', authenticateToken, async (req, res) => {
+app.get('/hospital/profile', authenticateToken, requireHospital, async (req, res) => {
   try {
-    if (req.user.role !== 'hospital') {
-      return res.status(403).json({ message: 'Access denied. Hospital role required.' });
-    }
-
     const hospital = await Hospital.findById(req.user.id).select('-password');
     if (!hospital) {
       return res.status(404).json({ message: 'Hospital not found' });
@@ -1820,12 +2336,8 @@ app.get('/hospital/profile', authenticateToken, async (req, res) => {
 });
 
 // Update hospital profile
-app.put('/hospital/profile', authenticateToken, async (req, res) => {
+app.put('/hospital/profile', authenticateToken, requireHospital, async (req, res) => {
   try {
-    if (req.user.role !== 'hospital') {
-      return res.status(403).json({ message: 'Access denied. Hospital role required.' });
-    }
-
     const { name, email, phone, address, emergencyContact, radius } = req.body;
 
     const hospital = await Hospital.findByIdAndUpdate(
@@ -1854,15 +2366,8 @@ app.put('/hospital/profile', authenticateToken, async (req, res) => {
 });
 
 // Update hospital password
-app.put('/hospital/update-password', authenticateToken, async (req, res) => {
+app.put('/hospital/update-password', authenticateToken, requireHospital, async (req, res) => {
   try {
-    if (req.user.role !== 'hospital') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Hospital role required.'
-      });
-    }
-
     const { currentPassword, newPassword } = req.body;
 
     // Validation
@@ -1923,12 +2428,8 @@ app.put('/hospital/update-password', authenticateToken, async (req, res) => {
 });
 
 // Get hospital dashboard stats
-app.get('/hospital/dashboard/stats', authenticateToken, async (req, res) => {
+app.get('/hospital/dashboard/stats', authenticateToken, requireHospital, async (req, res) => {
   try {
-    if (req.user.role !== 'hospital') {
-      return res.status(403).json({ message: 'Access denied. Hospital role required.' });
-    }
-
     const BloodRequest = require('./models/BloodRequest');
     const Donor = require('./models/Donor');
 
@@ -1975,12 +2476,8 @@ app.get('/hospital/dashboard/stats', authenticateToken, async (req, res) => {
 });
 
 // Get recent blood requests for hospital
-app.get('/hospital/dashboard/recent-requests', authenticateToken, async (req, res) => {
+app.get('/hospital/dashboard/recent-requests', authenticateToken, requireHospital, async (req, res) => {
   try {
-    if (req.user.role !== 'hospital') {
-      return res.status(403).json({ message: 'Access denied. Hospital role required.' });
-    }
-
     const BloodRequest = require('./models/BloodRequest');
 
     const recentRequests = await BloodRequest.find({
@@ -2004,8 +2501,137 @@ app.get('/hospital/dashboard/recent-requests', authenticateToken, async (req, re
   }
 });
 
+/* ============================
+   Admin: Hospital Approval Endpoints
+============================ */
+
+// Admin: Approve hospital registration
+app.post('/admin/hospitals/:id/approve', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const hospital = await Hospital.findById(id);
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hospital not found'
+      });
+    }
+
+    // Update hospital to verified and active
+    hospital.isVerified = true;
+    hospital.status = 'active';
+    await hospital.save();
+
+    // Create notification for approval
+    await createAdminNotification(
+      'Hospital Approved',
+      `Hospital "${hospital.name}" (${hospital.email}) has been approved and can now login.`,
+      'success',
+      { hospitalId: hospital._id }
+    );
+
+    console.log(`✅ Hospital approved: ${hospital.email}`);
+
+    res.json({
+      success: true,
+      message: 'Hospital approved successfully',
+      hospital: {
+        ...hospital.toObject(),
+        id: hospital._id.toString()
+      }
+    });
+  } catch (error) {
+    console.error('Error approving hospital:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve hospital',
+      error: error.message
+    });
+  }
+});
+
+// Admin: Deny hospital registration
+app.post('/admin/hospitals/:id/deny', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const hospital = await Hospital.findById(id);
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hospital not found'
+      });
+    }
+
+    // Update hospital status to denied
+    hospital.status = 'denied';
+    hospital.isVerified = false;
+    await hospital.save();
+
+    // Create notification for denial
+    await createAdminNotification(
+      'Hospital Registration Denied',
+      `Hospital "${hospital.name}" (${hospital.email}) registration has been denied. Reason: ${reason || 'Not specified'}`,
+      'warning',
+      { hospitalId: hospital._id }
+    );
+
+    console.log(`❌ Hospital denied: ${hospital.email}`);
+
+    res.json({
+      success: true,
+      message: 'Hospital registration denied',
+      hospital: {
+        ...hospital.toObject(),
+        id: hospital._id.toString()
+      }
+    });
+  } catch (error) {
+    console.error('Error denying hospital:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to deny hospital',
+      error: error.message
+    });
+  }
+});
+
+// Admin: Get pending hospital registrations
+app.get('/admin/hospitals/pending', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    console.log('Fetching pending hospital registrations...');
+    const pendingHospitals = await Hospital.find({
+      status: 'pending',
+      isVerified: false
+    })
+      .sort({ createdAt: -1 })
+      .select('-password');
+
+    res.json({
+      success: true,
+      message: `Found ${pendingHospitals.length} pending registrations`,
+      hospitals: pendingHospitals.map(h => ({
+        ...h.toObject(),
+        id: h._id.toString(),
+        registeredAt: h.createdAt
+      })),
+      count: pendingHospitals.length
+    });
+  } catch (error) {
+    console.error('Error fetching pending hospitals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch pending hospitals',
+      error: error.message
+    });
+  }
+});
+
+
 // Admin: Add hospital (for admin panel)
-app.post('/admin/hospitals', async (req, res) => {
+app.post('/admin/hospitals', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { name, email, phone, emergencyContact, address, radius, status } = req.body;
     if (!name || !email) {

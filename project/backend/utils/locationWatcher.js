@@ -36,6 +36,12 @@ async function startLocationWatcher() {
                     return;
                 }
 
+                // CHECK: If request is already fulfilled, do not broadcast new locations
+                if (bloodRequest.status === 'fulfilled' || bloodRequest.status === 'cancelled' || (bloodRequest.confirmedUnits >= bloodRequest.quantity)) {
+                    console.log(`🚫 Request ${bloodRequest._id} is already ${bloodRequest.status}. Skipping notification for late submission.`);
+                    return;
+                }
+
                 // Match donor by mobile number only
                 let donor = null;
                 if (newLocation.mobileNumber) {

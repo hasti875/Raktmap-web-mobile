@@ -41,7 +41,7 @@ interface AuthContextType {
     role: string;
     location?: string;
   } | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   loading: boolean;
@@ -139,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (
     email: string,
     password: string
-  ): Promise<boolean> => {
+  ): Promise<void> => {
     try {
       // Clear any existing auth data before login attempt
       localStorage.removeItem("token");
@@ -151,8 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { token, role: responseRole, name } = response.data;
       if (!token) {
-        console.error("No token received from server");
-        return false;
+        throw new Error("No token received from server");
       }
 
       console.log("Token received, length:", token.length);
@@ -180,7 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       } catch (e) {
         console.error("Could not decode token:", e);
-        return false;
+        throw new Error("Invalid token received");
       }
 
       const userData = {
@@ -197,18 +196,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(userData);
 
       console.log("Login successful");
-      return true;
-    } catch (error) {
+    } catch (error: any) {
       if (axios.isAxiosError(error)) {
         console.error("Login failed:", {
           status: error.response?.status,
           data: error.response?.data,
           message: error.message,
         });
+        throw new Error(error.response?.data?.message || "Login failed");
       } else {
         console.error("Login failed:", error);
+        throw error;
       }
-      return false;
     }
   };
 

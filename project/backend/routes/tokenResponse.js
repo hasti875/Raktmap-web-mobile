@@ -25,13 +25,22 @@ router.get('/r/:token', async (req, res) => {
     const request = await BloodRequest.findById(responseToken.requestId);
     const donor = await Donor.findById(responseToken.donorId);
 
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Blood request no longer exists' });
+    }
+
+    // Check if fulfills logic
+    const isFulfilled = request.status === 'fulfilled' || request.status === 'cancelled' || (request.confirmedUnits >= request.quantity);
+
     // Return token details for frontend
     res.json({
       success: true,
       data: {
         token: responseToken.token,
         request: request,
-        donor: donor
+        donor: donor,
+        isFulfilled: isFulfilled, // Explicit flag for frontend
+        statusMessage: isFulfilled ? 'This blood request has already been fulfilled. Thank you for your support!' : null
       }
     });
 
@@ -57,6 +66,20 @@ router.post('/r/:token/respond', async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Invalid or expired response link'
+      });
+    }
+
+    // Check request status
+    const request = await BloodRequest.findById(responseToken.requestId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Blood request not found' });
+    }
+
+    if (request.status === 'fulfilled' || request.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        error: 'Request already fulfilled',
+        message: 'Thank you for your willingness to help, but this blood request has already been fulfilled.'
       });
     }
 
