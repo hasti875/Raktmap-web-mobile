@@ -4,15 +4,15 @@ const settingsSchema = new mongoose.Schema({
   // SMS Configuration
   smsApiKey: {
     type: String,
-    default: process.env.TWILIO_AUTH_TOKEN || ''
+    default: process.env.WHATSAPP_API_KEY || process.env.SMS_API_KEY || process.env.TWILIO_AUTH_TOKEN || ''
   },
   smsAccountSid: {
     type: String,
-    default: process.env.TWILIO_ACCOUNT_SID || ''
+    default: process.env.WHATSAPP_SENDER || process.env.SMS_SENDER || process.env.TWILIO_ACCOUNT_SID || ''
   },
   smsPhoneNumber: {
     type: String,
-    default: process.env.TWILIO_PHONE_NUMBER || ''
+    default: process.env.WHATSAPP_SENDER || process.env.SMS_SENDER || process.env.TWILIO_PHONE_NUMBER || ''
   },
   
   // SMS Templates

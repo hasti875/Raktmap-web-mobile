@@ -85,6 +85,8 @@ router.post('/', async (req, res) => {
       phone: req.body.phone,
       emergencyContact: req.body.emergencyContact,
       address: req.body.address,
+      latitude: Number.isFinite(Number(req.body.latitude)) ? Number(req.body.latitude) : undefined,
+      longitude: Number.isFinite(Number(req.body.longitude)) ? Number(req.body.longitude) : undefined,
       radius: req.body.radius,
       status: req.body.status || 'pending'
     });
@@ -131,6 +133,14 @@ router.put('/:id', async (req, res) => {
     const updateData = { ...req.body };
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
+    }
+    if (updateData.latitude !== undefined) {
+      const parsedLatitude = Number(updateData.latitude);
+      updateData.latitude = Number.isFinite(parsedLatitude) ? parsedLatitude : undefined;
+    }
+    if (updateData.longitude !== undefined) {
+      const parsedLongitude = Number(updateData.longitude);
+      updateData.longitude = Number.isFinite(parsedLongitude) ? parsedLongitude : undefined;
     }
 
     // Check if email is being updated and if it's already in use

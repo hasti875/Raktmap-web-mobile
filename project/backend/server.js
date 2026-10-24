@@ -1723,7 +1723,7 @@ app.post('/register', authLimiter, validateRegistration, async (req, res) => {
 ============================ */
 app.post('/verify-registration', authLimiter, validateOTP, async (req, res) => {
   try {
-    let { email, otp, password, name, role, phone, bloodGroup, birthdate } = req.body;
+    let { email, otp, password, name, role, phone, bloodGroup, birthdate, address, latitude, longitude } = req.body;
 
     if (!email || !otp || !password || !name) {
       return res.status(400).json({ message: 'All fields required' });
@@ -1865,12 +1865,19 @@ app.post('/verify-registration', authLimiter, validateOTP, async (req, res) => {
         return res.status(409).json({ message: 'User already exists' });
       }
 
+      const parsedLatitude = latitude !== undefined ? Number(latitude) : undefined;
+      const parsedLongitude = longitude !== undefined ? Number(longitude) : undefined;
+
       // Create the hospital account (pending admin approval)
       const hashedPassword = await bcrypt.hash(password, 10);
       const hospital = new Hospital({
         email: emailLower,
         password: hashedPassword,
         name,
+        phone,
+        address,
+        latitude: Number.isFinite(parsedLatitude) ? parsedLatitude : undefined,
+        longitude: Number.isFinite(parsedLongitude) ? parsedLongitude : undefined,
         isVerified: false,  // Requires admin approval
         status: 'pending'   // Pending until admin approves
       });
@@ -2338,11 +2345,21 @@ app.get('/hospital/profile', authenticateToken, requireHospital, async (req, res
 // Update hospital profile
 app.put('/hospital/profile', authenticateToken, requireHospital, async (req, res) => {
   try {
-    const { name, email, phone, address, emergencyContact, radius } = req.body;
+    const { name, email, phone, address, emergencyContact, radius, latitude, longitude } = req.body;
+
+    const updateData = { name, email, phone, address, emergencyContact, radius };
+    if (latitude !== undefined) {
+      const parsedLatitude = Number(latitude);
+      if (Number.isFinite(parsedLatitude)) updateData.latitude = parsedLatitude;
+    }
+    if (longitude !== undefined) {
+      const parsedLongitude = Number(longitude);
+      if (Number.isFinite(parsedLongitude)) updateData.longitude = parsedLongitude;
+    }
 
     const hospital = await Hospital.findByIdAndUpdate(
       req.user.id,
-      { name, email, phone, address, emergencyContact, radius },
+      updateData,
       { new: true, select: '-password' }
     );
 

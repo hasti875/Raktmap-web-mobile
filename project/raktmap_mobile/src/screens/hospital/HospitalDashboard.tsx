@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView } from 'react-native';
-import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList, DrawerItem } from '@react-navigation/drawer';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-// @ts-ignore - Expo vector icons types
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawer';
+// @ts-ignore
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import HomeScreen from './HomeScreen';
@@ -20,74 +19,74 @@ import ScannerScreen from './ScannerScreen';
 import BloodStockScreen from './BloodStockScreen';
 
 const Drawer = createDrawerNavigator();
-const Stack = createNativeStackNavigator();
 
-// Custom Drawer Content
 const CustomDrawerContent = (props: any) => {
+  const { logout, user } = useAuth();
   return (
-    <DrawerContentScrollView {...props}>
-      {/* Header */}
-      <View style={styles.drawerHeader}>
-        <View style={styles.drawerHeaderIcon}>
-          <MaterialCommunityIcons name="hospital-building" size={40} color="#DC2626" />
+    <DrawerContentScrollView
+      {...props}
+      contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }} // ✅ FIXED: was { flex: 1 }
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Crimson header */}
+      <View style={s.header}>
+        <View style={s.hc1} />
+        <View style={s.hc2} />
+        <View style={s.avatar}>
+          <Text style={s.avatarTxt}>🏥</Text>
         </View>
-        <Text style={styles.drawerHeaderTitle}>Raktmap Hospital</Text>
-        <Text style={styles.drawerHeaderSubtitle}>Blood Donation System</Text>
+        <Text style={s.name}>{user?.name ?? 'Hospital'}</Text>
+        <Text style={s.sub}>Blood Donation System</Text>
+        <View style={s.badge}>
+          <Text style={s.badgeTxt}>● Active</Text>
+        </View>
       </View>
 
-      {/* Main Navigation Items */}
-      <View style={styles.drawerSection}>
+      {/* Nav items */}
+      <View style={s.items}>
         <DrawerItemList {...props} />
       </View>
+
+      {/* Sign Out — scrolls with list, no longer stuck */}
+      <TouchableOpacity
+        style={s.logout}
+        onPress={logout}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="log-out-outline" size={20} color="#C8102E" />
+        <Text style={s.logoutTxt}>Sign Out</Text>
+      </TouchableOpacity>
     </DrawerContentScrollView>
   );
 };
 
 const HospitalDashboard = () => {
   const { logout } = useAuth();
-
   return (
     <Drawer.Navigator
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{
-        headerStyle: {
-          backgroundColor: '#DC2626',
-        },
+        headerStyle: { backgroundColor: '#C8102E' },
         headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        },
-        headerLeftContainerStyle: {
-          paddingLeft: 10,
-        },
-        headerRightContainerStyle: {
-          paddingRight: 10,
-        },
-        drawerActiveTintColor: '#DC2626',
+        headerTitleStyle: { fontWeight: '800', fontSize: 18, letterSpacing: 0.2 },
+        headerLeftContainerStyle: { paddingLeft: 10 },
+        headerRightContainerStyle: { paddingRight: 10 },
+        drawerActiveTintColor: '#C8102E',
         drawerInactiveTintColor: '#6B7280',
-        drawerStyle: {
-          backgroundColor: '#fff',
-          width: 280,
-        },
-        drawerLabelStyle: {
-          fontSize: 15,
-          fontWeight: '500',
-        },
+        drawerStyle: { backgroundColor: '#fff', width: 292 },
+        drawerLabelStyle: { fontSize: 15, fontWeight: '600', marginLeft: -6 },
+        drawerItemStyle: { borderRadius: 12, marginHorizontal: 8, marginVertical: 1 },
+        drawerActiveBackgroundColor: '#FFF1F2',
       }}
     >
       <Drawer.Screen
         name="Home"
         component={HomeScreen}
         options={{
-          title: 'Home',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
-          ),
+          title: 'Dashboard',
+          drawerIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
           headerRight: () => (
-            <TouchableOpacity
-              onPress={logout}
-              style={{ marginRight: 5, padding: 8 }}
-            >
+            <TouchableOpacity onPress={logout} style={{ marginRight: 5, padding: 8 }}>
               <Ionicons name="log-out-outline" size={24} color="#fff" />
             </TouchableOpacity>
           ),
@@ -98,9 +97,7 @@ const HospitalDashboard = () => {
         component={CreateRequestScreen}
         options={{
           title: 'New Blood Request',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <Ionicons name="add-circle" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -108,9 +105,7 @@ const HospitalDashboard = () => {
         component={MyRequestsScreen}
         options={{
           title: 'My Requests',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="list" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <Ionicons name="list" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -118,29 +113,23 @@ const HospitalDashboard = () => {
         component={BloodStockScreen}
         options={{
           title: 'Blood Stock',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="water" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <Ionicons name="water" size={size} color={color} />,
         }}
       />
-      <Drawer.Screen
+      {/* <Drawer.Screen
         name="Donors"
         component={DonorsScreen}
         options={{
           title: 'Browse Donors',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="people" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
         }}
-      />
+      /> */}
       <Drawer.Screen
         name="SearchDonors"
         component={SearchDonorsScreen}
         options={{
           title: 'Search Donors',
-          drawerIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="account-search" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <MaterialCommunityIcons name="account-search" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -148,9 +137,7 @@ const HospitalDashboard = () => {
         component={AvailableDonorsScreen}
         options={{
           title: 'Available Donors',
-          drawerIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="account-check" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <MaterialCommunityIcons name="account-check" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -158,9 +145,7 @@ const HospitalDashboard = () => {
         component={LiveMapScreen}
         options={{
           title: 'Live Map',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="map" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <Ionicons name="map" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -168,9 +153,7 @@ const HospitalDashboard = () => {
         component={DonationHistoryScreen}
         options={{
           title: 'Donation History',
-          drawerIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="history" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <MaterialCommunityIcons name="history" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -178,9 +161,7 @@ const HospitalDashboard = () => {
         component={NotificationCenterScreen}
         options={{
           title: 'Notifications',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="notifications" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <Ionicons name="notifications" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -188,9 +169,7 @@ const HospitalDashboard = () => {
         component={ScannerScreen}
         options={{
           title: 'Scan QR Code',
-          drawerIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="qr-code-scanner" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <MaterialCommunityIcons name="qrcode-scan" size={size} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -198,52 +177,34 @@ const HospitalDashboard = () => {
         component={HospitalSettingsScreen}
         options={{
           title: 'Settings',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="settings" size={size} color={color} />
-          ),
+          drawerIcon: ({ color, size }) => <Ionicons name="settings" size={size} color={color} />,
+        }}
+      />
+      <Drawer.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          title: 'My Profile',
+          drawerIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
         }}
       />
     </Drawer.Navigator>
   );
 };
 
-export default HospitalDashboard;
-
-const styles = StyleSheet.create({
-  drawerHeader: {
-    backgroundColor: '#FEE2E2',
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#FCA5A5',
-    alignItems: 'center',
-  },
-  drawerHeaderIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  drawerHeaderTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#DC2626',
-    marginBottom: 4,
-  },
-  drawerHeaderSubtitle: {
-    fontSize: 13,
-    color: '#991B1B',
-    fontWeight: '500',
-  },
-  drawerSection: {
-    paddingTop: 8,
-  },
+const s = StyleSheet.create({
+  header: { backgroundColor: '#C8102E', paddingTop: 52, paddingBottom: 24, paddingHorizontal: 20, alignItems: 'center', overflow: 'hidden' },
+  hc1: { position: 'absolute', width: 210, height: 210, borderRadius: 105, backgroundColor: 'rgba(255,255,255,0.06)', top: -65, right: -55 },
+  hc2: { position: 'absolute', width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.04)', bottom: -30, left: -35 },
+  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,255,255,0.2)', borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.5)', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  avatarTxt: { fontSize: 36 },
+  name: { color: '#fff', fontSize: 17, fontWeight: '800', marginBottom: 3 },
+  sub: { color: 'rgba(255,255,255,0.68)', fontSize: 12, fontWeight: '500' },
+  badge: { marginTop: 10, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)' },
+  badgeTxt: { color: '#4ADE80', fontSize: 12, fontWeight: '700' },
+  items: { paddingTop: 6 }, // ✅ FIXED: removed flex: 1
+  logout: { flexDirection: 'row', alignItems: 'center', margin: 14, padding: 14, borderRadius: 14, backgroundColor: '#FFF1F2', borderWidth: 1, borderColor: '#FECACA' },
+  logoutTxt: { color: '#C8102E', fontSize: 15, fontWeight: '700', marginLeft: 10 },
 });
+
+export default HospitalDashboard;

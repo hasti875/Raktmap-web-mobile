@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { User, Lock, Shield, Key, CheckCircle } from "lucide-react";
+import { User, Lock, Shield, Key, CheckCircle, MapPin } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import Loader from "./Loader";
 import { useAuth } from "../../contexts/AuthContext";
@@ -11,10 +11,14 @@ const RegisterForm: React.FC = () => {
     name: "",
     email: "",
     password: "",
+    phone: "",
+    latitude: "",
+    longitude: "",
   });
   const [otp, setOtp] = useState("");
   const [message, setMessage] = useState({ type: '', text: '' });
   const [loading, setLoading] = useState(false);
+  const [locating, setLocating] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
 
@@ -22,6 +26,34 @@ const RegisterForm: React.FC = () => {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleCaptureLocation = () => {
+    if (!navigator.geolocation) {
+      setMessage({ type: 'error', text: 'Geolocation is not supported in this browser.' });
+      return;
+    }
+
+    setLocating(true);
+    setMessage({ type: '', text: '' });
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setForm((prev) => ({
+          ...prev,
+          latitude: String(position.coords.latitude),
+          longitude: String(position.coords.longitude),
+        }));
+        setLocating(false);
+      },
+      () => {
+        setLocating(false);
+        setMessage({ type: 'error', text: 'Unable to capture location. Please allow location permission and try again.' });
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+      }
+    );
   };
 
   // Step 1: Register and send OTP
@@ -39,6 +71,10 @@ const RegisterForm: React.FC = () => {
       setMessage({ type: 'error', text: 'Please enter a valid email address.' });
       return;
     }
+    if (!form.phone.trim()) {
+      setMessage({ type: 'error', text: 'Phone number is required.' });
+      return;
+    }
     if (form.password.length < 6) {
       setMessage({ type: 'error', text: 'Password must be at least 6 characters.' });
       return;
@@ -46,7 +82,12 @@ const RegisterForm: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await axios.post('/register', form, { timeout: 30000 });
+      const response = await axios.post('/register', {
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        phone: form.phone,
+      }, { timeout: 30000 });
       if (response.data.success) {
         setMessage({ type: 'success', text: 'OTP sent to your email! Please check your inbox.' });
         setStep('verify');
@@ -76,7 +117,11 @@ const RegisterForm: React.FC = () => {
         email: form.email,
         otp: otp,
         password: form.password,
-        name: form.name
+        name: form.name,
+        role: 'hospital',
+        phone: form.phone,
+        latitude: form.latitude ? Number(form.latitude) : undefined,
+        longitude: form.longitude ? Number(form.longitude) : undefined,
       }, { timeout: 30000 });
 
       if (response.data.success) {
@@ -205,6 +250,65 @@ const RegisterForm: React.FC = () => {
                   required
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Phone Number
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <input
+                  name="phone"
+                  type="tel"
+                  value={form.phone}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Enter phone number with country code"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 dark:border-gray-600 p-3 bg-gray-50 dark:bg-gray-700/40">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Hospital Location (for map marker)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleCaptureLocation}
+                  disabled={locating}
+                  className="inline-flex items-center space-x-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <MapPin className="h-3 w-3" />
+                  <span>{locating ? 'Capturing...' : 'Use Current Location'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <input
+                  name="latitude"
+                  type="text"
+                  value={form.latitude}
+                  onChange={handleChange}
+                  placeholder="Latitude"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  readOnly
+                />
+                <input
+                  name="longitude"
+                  type="text"
+                  value={form.longitude}
+                  onChange={handleChange}
+                  placeholder="Longitude"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  readOnly
+                />
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                If location is allowed, your hospital marker will appear at this position in the web live map.
+              </p>
             </div>
 
             {message.text && (

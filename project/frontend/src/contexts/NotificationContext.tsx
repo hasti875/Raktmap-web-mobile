@@ -127,14 +127,55 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, []); // Empty dependency array - only create connection once
 
-  const markAsRead = useCallback((id: string) => {
+  const markAsRead = useCallback(async (id: string) => {
+    // Update local state immediately for better UX
     setNotifications((prev) =>
       prev.map((notif) => (notif._id === id ? { ...notif, read: true } : notif))
     );
+    
+    // Persist to backend
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5000/notifications/${id}/read`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to mark notification as read on server');
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
   }, []);
 
-  const markAllAsRead = useCallback(() => {
+  const markAllAsRead = useCallback(async () => {
+    const hospitalId = getHospitalIdFromToken();
+    if (!hospitalId) return;
+    
+    // Update local state immediately
     setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })));
+    
+    // Persist to backend
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5000/notifications/${hospitalId}/read-all`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to mark all notifications as read on server');
+      }
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
   }, []);
 
   const unreadCount = notifications.filter((n) => !n.read).length;

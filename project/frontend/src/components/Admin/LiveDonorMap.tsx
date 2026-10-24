@@ -113,8 +113,8 @@ const LiveDonorMap = () => {
     noResponse: 0
   });
 
-  // Charusat University coordinates (admin view center)
-  const centerLocation: [number, number] = [22.6001, 72.8205];
+  // Charusat Hospital, Gujarat coordinates (admin view center)
+  const centerLocation: [number, number] = [22.602556127219323, 72.82048814218332];
 
   // Fetch donor responses with locations
   const fetchDonorResponses = async () => {
@@ -230,7 +230,7 @@ const LiveDonorMap = () => {
         <Marker position={centerLocation} icon={hospitalIcon}>
           <Popup>
             <div className="text-center">
-              <strong>Charusat University</strong><br />
+              <strong>Charusat Hospital</strong><br />
               <span className="text-sm text-gray-600">Admin Center</span>
             </div>
           </Popup>

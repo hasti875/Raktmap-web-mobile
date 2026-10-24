@@ -65,8 +65,8 @@ const LiveMapScreen = () => {
   const [selectedRequestId, setSelectedRequestId] = useState<string>('all-locations');
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const [mapRegion, setMapRegion] = useState({
-    latitude: 22.6013,
-    longitude: 72.8327,
+    latitude: 22.602556127219323,
+    longitude: 72.82048814218332,
     latitudeDelta: 0.1,
     longitudeDelta: 0.1,
   });
@@ -101,10 +101,10 @@ const LiveMapScreen = () => {
   };
 
 
-  // Hospital coordinates (Charusat)
+  // Hospital coordinates (Charusat Hospital, Gujarat)
   const hospitalLocation = {
-    latitude: 22.60346,
-    longitude: 72.82055,
+    latitude: 22.602556127219323,
+    longitude: 72.82048814218332,
   };
 
 
@@ -289,11 +289,11 @@ const LiveMapScreen = () => {
         {/* Hospital Marker */}
         <Marker
           coordinate={{
-            latitude: 22.60346,
-            longitude: 72.82055
+            latitude: 22.602556127219323,
+            longitude: 72.82048814218332
           }}
-          title="Hospital (Charusat)"
-          description="Blood Donation Center"
+          title="Charusat Hospital"
+          description="Blood Donation Center - Gujarat"
         >
           <View style={styles.hospitalMarker}>
             <Text style={{ fontSize: 20 }}>🏥</Text>

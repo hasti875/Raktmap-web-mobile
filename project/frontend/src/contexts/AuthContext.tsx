@@ -109,6 +109,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw new Error('Token missing required fields');
         }
 
+        // Block donor users from accessing web app
+        if (payload.role === 'donor') {
+          console.error("❌ Donor users cannot access web app");
+          throw new Error('Donors cannot access the web application');
+        }
+
+        // Only allow admin and hospital roles
+        if (payload.role !== 'admin' && payload.role !== 'hospital') {
+          console.error("❌ Invalid role for web app:", payload.role);
+          throw new Error('Invalid user role for web application');
+        }
+
         // Create user object
         const userData = {
           _id: payload.id,
@@ -152,6 +164,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { token, role: responseRole, name } = response.data;
       if (!token) {
         throw new Error("No token received from server");
+      }
+
+      // Check if user is a donor - donors cannot access web app
+      if (responseRole === 'donor') {
+        throw new Error("Donors cannot access the web application. Please use the RaktMap mobile app to access your donor account.");
+      }
+
+      // Only allow admin and hospital users
+      if (responseRole !== 'admin' && responseRole !== 'hospital') {
+        throw new Error("Invalid user role. Only hospital and admin users can access this application.");
       }
 
       console.log("Token received, length:", token.length);

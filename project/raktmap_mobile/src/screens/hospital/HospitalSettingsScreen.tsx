@@ -1,399 +1,139 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  Alert,
-  Switch,
-  ActivityIndicator,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Switch, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../config/api';
 
 const HospitalSettingsScreen = () => {
   const { user, updateUser } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  // Profile Settings
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [saving, setSaving]   = useState(false);
+  const [name, setName]       = useState('');
+  const [email, setEmail]     = useState('');
+  const [phone, setPhone]     = useState('');
   const [address, setAddress] = useState('');
+  const [emailNotif, setEmailNotif] = useState(true);
+  const [smsNotif, setSmsNotif]     = useState(true);
+  const [pushNotif, setPushNotif]   = useState(true);
+  const [curPw, setCurPw]     = useState('');
+  const [newPw, setNewPw]     = useState('');
+  const [confPw, setConfPw]   = useState('');
 
-  // Notification Settings
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [smsNotifications, setSmsNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
-
-  // Password Change
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-
-  useEffect(() => {
-    fetchSettings();
-  }, []);
+  useEffect(() => { fetchSettings(); }, []);
 
   const fetchSettings = async () => {
     try {
-      if (!user?._id) {
-        setLoading(false);
-        return;
-      }
-
-      const response = await api.get(`/hospitals/${user._id}`);
-      const data = response.data.hospital || response.data;
-      setName(data.name || '');
-      setEmail(data.email || '');
-      setPhone(data.phone || '');
-      setAddress(data.address || '');
-      setEmailNotifications(data.emailNotifications !== false);
-      setSmsNotifications(data.smsNotifications !== false);
-      setPushNotifications(data.pushNotifications !== false);
-    } catch (error) {
-      console.error('Error fetching settings:', error);
-    } finally {
-      setLoading(false);
-    }
+      if (!user?._id) return;
+      const r = await api.get(`/hospitals/${user._id}`);
+      const d = r.data.hospital || r.data;
+      setName(d.name || ''); setEmail(d.email || ''); setPhone(d.phone || ''); setAddress(d.address || '');
+      setEmailNotif(d.emailNotifications !== false); setSmsNotif(d.smsNotifications !== false); setPushNotif(d.pushNotifications !== false);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
-  const handleSaveProfile = async () => {
-    if (!name.trim() || !email.trim()) {
-      Alert.alert('Error', 'Name and email are required');
-      return;
-    }
-
-    if (!user?._id) {
-      Alert.alert('Error', 'User information not available');
-      return;
-    }
-
+  const saveProfile = async () => {
+    if (!name.trim() || !email.trim()) { Alert.alert('Error', 'Name and email are required'); return; }
     setSaving(true);
-    try {
-      await updateUser({
-        name,
-        email,
-        phone,
-        address,
-      } as any);
-      Alert.alert('Success', 'Profile updated successfully');
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to update profile');
-    } finally {
-      setSaving(false);
-    }
+    try { await updateUser({ name, email, phone, address } as any); Alert.alert('Saved', 'Profile updated successfully'); }
+    catch (e: any) { Alert.alert('Error', e.response?.data?.message || 'Failed to update profile'); }
+    finally { setSaving(false); }
   };
 
-  const handleSaveNotifications = async () => {
-    if (!user?._id) return;
-
+  const saveNotifs = async () => {
     setSaving(true);
-    try {
-      await updateUser({
-        emailNotifications,
-        smsNotifications,
-        pushNotifications,
-      } as any);
-      Alert.alert('Success', 'Notification settings updated');
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to update settings');
-    } finally {
-      setSaving(false);
-    }
+    try { await updateUser({ emailNotifications: emailNotif, smsNotifications: smsNotif, pushNotifications: pushNotif } as any); Alert.alert('Saved', 'Notification settings updated'); }
+    catch (e: any) { Alert.alert('Error', e.response?.data?.message || 'Failed to update settings'); }
+    finally { setSaving(false); }
   };
 
-  const handleChangePassword = async () => {
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Error', 'All password fields are required');
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      Alert.alert('Error', 'New password must be at least 6 characters');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match');
-      return;
-    }
-
-    if (!user?._id) {
-      Alert.alert('Error', 'User information not available');
-      return;
-    }
-
+  const changePw = async () => {
+    if (!curPw || !newPw || !confPw) { Alert.alert('Error', 'All password fields are required'); return; }
+    if (newPw.length < 6) { Alert.alert('Error', 'New password must be at least 6 characters'); return; }
+    if (newPw !== confPw) { Alert.alert('Error', 'New passwords do not match'); return; }
     setSaving(true);
-    try {
-      await api.put(`/hospitals/${user._id}`, {
-        currentPassword,
-        newPassword,
-      });
-      Alert.alert('Success', 'Password changed successfully');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to change password');
-    } finally {
-      setSaving(false);
-    }
+    try { await api.put(`/hospitals/${user?._id}`, { currentPassword: curPw, newPassword: newPw }); Alert.alert('Success', 'Password changed successfully'); setCurPw(''); setNewPw(''); setConfPw(''); }
+    catch (e: any) { Alert.alert('Error', e.response?.data?.message || 'Failed to change password'); }
+    finally { setSaving(false); }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#DC2626" />
-      </View>
-    );
-  }
+  if (loading) return <View style={s.loading}><ActivityIndicator size="large" color="#C8102E" /></View>;
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Profile Settings */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Profile Information</Text>
+    <ScrollView style={s.root} showsVerticalScrollIndicator={false}>
 
-        <Text style={styles.label}>Hospital Name</Text>
-        <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="Enter hospital name"
-        />
+      {/* Profile */}
+      <Section title="👤 Profile Information">
+        <Field label="Hospital Name" value={name} onChange={setName} placeholder="Enter hospital name" />
+        <Field label="Email" value={email} onChange={setEmail} placeholder="Enter email" keyboardType="email-address" autoCapitalize="none" />
+        <Field label="Phone" value={phone} onChange={setPhone} placeholder="Enter phone number" keyboardType="phone-pad" />
+        <Field label="Address" value={address} onChange={setAddress} placeholder="Enter hospital address" multiline />
+        <SaveBtn onPress={saveProfile} saving={saving} label="Save Profile" />
+      </Section>
 
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="Enter email"
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-
-        <Text style={styles.label}>Phone</Text>
-        <TextInput
-          style={styles.input}
-          value={phone}
-          onChangeText={setPhone}
-          placeholder="Enter phone number"
-          keyboardType="phone-pad"
-        />
-
-        <Text style={styles.label}>Address</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          value={address}
-          onChangeText={setAddress}
-          placeholder="Enter hospital address"
-          multiline
-          numberOfLines={3}
-        />
-
-        <TouchableOpacity
-          style={[styles.button, saving && styles.buttonDisabled]}
-          onPress={handleSaveProfile}
-          disabled={saving}
-        >
-          <Text style={styles.buttonText}>
-            {saving ? 'Saving...' : 'Save Profile'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Notification Settings */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notification Preferences</Text>
-
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Email Notifications</Text>
-            <Text style={styles.settingDescription}>
-              Receive notifications via email
-            </Text>
+      {/* Notifications */}
+      <Section title="🔔 Notification Preferences">
+        {[
+          { label: 'Email Notifications', sub: 'Receive notifications via email', val: emailNotif, set: setEmailNotif },
+          { label: 'SMS Notifications',   sub: 'Receive alerts via SMS',           val: smsNotif,   set: setSmsNotif   },
+          { label: 'Push Notifications',  sub: 'Receive push notifications',       val: pushNotif,  set: setPushNotif  },
+        ].map(({ label, sub, val, set }) => (
+          <View key={label} style={s.switchRow}>
+            <View style={s.switchInfo}>
+              <Text style={s.switchLabel}>{label}</Text>
+              <Text style={s.switchSub}>{sub}</Text>
+            </View>
+            <Switch value={val} onValueChange={set} trackColor={{ false: '#D1D5DB', true: '#FCA5A5' }} thumbColor={val ? '#C8102E' : '#F3F4F6'} />
           </View>
-          <Switch
-            value={emailNotifications}
-            onValueChange={setEmailNotifications}
-            trackColor={{ false: '#D1D5DB', true: '#FCA5A5' }}
-            thumbColor={emailNotifications ? '#DC2626' : '#F3F4F6'}
-          />
-        </View>
+        ))}
+        <SaveBtn onPress={saveNotifs} saving={saving} label="Save Preferences" />
+      </Section>
 
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>SMS Notifications</Text>
-            <Text style={styles.settingDescription}>
-              Receive alerts via SMS
-            </Text>
-          </View>
-          <Switch
-            value={smsNotifications}
-            onValueChange={setSmsNotifications}
-            trackColor={{ false: '#D1D5DB', true: '#FCA5A5' }}
-            thumbColor={smsNotifications ? '#DC2626' : '#F3F4F6'}
-          />
-        </View>
-
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Push Notifications</Text>
-            <Text style={styles.settingDescription}>
-              Receive push notifications on your device
-            </Text>
-          </View>
-          <Switch
-            value={pushNotifications}
-            onValueChange={setPushNotifications}
-            trackColor={{ false: '#D1D5DB', true: '#FCA5A5' }}
-            thumbColor={pushNotifications ? '#DC2626' : '#F3F4F6'}
-          />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.button, saving && styles.buttonDisabled]}
-          onPress={handleSaveNotifications}
-          disabled={saving}
-        >
-          <Text style={styles.buttonText}>
-            {saving ? 'Saving...' : 'Save Preferences'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Change Password */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Change Password</Text>
-
-        <Text style={styles.label}>Current Password</Text>
-        <TextInput
-          style={styles.input}
-          value={currentPassword}
-          onChangeText={setCurrentPassword}
-          placeholder="Enter current password"
-          secureTextEntry
-        />
-
-        <Text style={styles.label}>New Password</Text>
-        <TextInput
-          style={styles.input}
-          value={newPassword}
-          onChangeText={setNewPassword}
-          placeholder="Enter new password"
-          secureTextEntry
-        />
-
-        <Text style={styles.label}>Confirm New Password</Text>
-        <TextInput
-          style={styles.input}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="Confirm new password"
-          secureTextEntry
-        />
-
-        <TouchableOpacity
-          style={[styles.button, styles.buttonSecondary, saving && styles.buttonDisabled]}
-          onPress={handleChangePassword}
-          disabled={saving}
-        >
-          <Text style={styles.buttonText}>
-            {saving ? 'Changing...' : 'Change Password'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Password */}
+      <Section title="🔒 Change Password">
+        <Field label="Current Password" value={curPw} onChange={setCurPw} placeholder="Enter current password" secureTextEntry />
+        <Field label="New Password" value={newPw} onChange={setNewPw} placeholder="Enter new password (min. 6 chars)" secureTextEntry />
+        <Field label="Confirm New Password" value={confPw} onChange={setConfPw} placeholder="Confirm new password" secureTextEntry />
+        <SaveBtn onPress={changePw} saving={saving} label="Change Password" color="#1E40AF" />
+      </Section>
     </ScrollView>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  section: {
-    backgroundColor: '#fff',
-    padding: 16,
-    marginBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-    marginTop: 12,
-  },
-  input: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    color: '#111827',
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  button: {
-    backgroundColor: '#DC2626',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  buttonSecondary: {
-    backgroundColor: '#1E40AF',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  settingInfo: {
-    flex: 1,
-    marginRight: 16,
-  },
-  settingLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  settingDescription: {
-    fontSize: 13,
-    color: '#6B7280',
-  },
+const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <View style={s.section}>
+    <Text style={s.secTitle}>{title}</Text>
+    {children}
+  </View>
+);
+
+const Field = ({ label, value, onChange, ...rest }: any) => (
+  <View style={{ marginBottom: 14 }}>
+    <Text style={s.label}>{label}</Text>
+    <TextInput style={[s.input, rest.multiline && s.textarea]} value={value} onChangeText={onChange} {...rest} />
+  </View>
+);
+
+const SaveBtn = ({ onPress, saving, label, color = '#C8102E' }: { onPress: () => void; saving: boolean; label: string; color?: string }) => (
+  <TouchableOpacity style={[s.saveBtn, { backgroundColor: color }, saving && s.saveBtnDim]} onPress={onPress} disabled={saving} activeOpacity={0.85}>
+    {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveBtnTxt}>{label}</Text>}
+  </TouchableOpacity>
+);
+
+const s = StyleSheet.create({
+  root:       { flex: 1, backgroundColor: '#F9F5F5' },
+  loading:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  section:    { backgroundColor: '#fff', padding: 16, marginBottom: 14, borderRadius: 0, borderBottomWidth: 1, borderTopWidth: 1, borderColor: '#E5E7EB' },
+  secTitle:   { fontSize: 16, fontWeight: '800', color: '#1A0A0F', marginBottom: 16 },
+  label:      { fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 6 },
+  input:      { backgroundColor: '#F9F5F5', borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 12, padding: 12, fontSize: 14, color: '#1A0A0F' },
+  textarea:   { height: 80, textAlignVertical: 'top' },
+  switchRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  switchInfo: { flex: 1, marginRight: 16 },
+  switchLabel:{ fontSize: 15, fontWeight: '600', color: '#1A0A0F', marginBottom: 3 },
+  switchSub:  { fontSize: 13, color: '#6B7280' },
+  saveBtn:    { padding: 14, borderRadius: 12, alignItems: 'center', marginTop: 16, shadowColor: '#C8102E', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 },
+  saveBtnDim: { opacity: 0.6 },
+  saveBtnTxt: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
 
 export default HospitalSettingsScreen;

@@ -4,9 +4,8 @@ import AvailableBloodStockScreen from '../../shared/AvailableBloodStockScreen';
 
 const StockTab = () => {
   return (
-    <View style={styles.container}>
-      <AvailableBloodStockScreen />
-    </View>
+    <AvailableBloodStockScreen bottomOffset={30} />
+      
   );
 };
 

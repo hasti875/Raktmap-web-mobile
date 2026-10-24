@@ -1,311 +1,104 @@
+// DonationHistoryScreen.tsx
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { api } from '../../config/api';
 
 const DonationHistoryScreen = () => {
-  const [history, setHistory] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [history, setHistory]       = useState<any[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'thisMonth' | 'thisYear'>('all');
+  const [filter, setFilter]         = useState<'all' | 'thisMonth' | 'thisYear'>('all');
 
-  useEffect(() => {
-    fetchHistory();
-  }, []);
+  useEffect(() => { fetchHistory(); }, []);
 
   const fetchHistory = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/donation-history/donation-history');
-      if (response.data.success) {
-        setHistory(response.data.donationHistory || []);
-      } else {
-        setHistory([]);
-      }
-    } catch (error) {
-      console.error('Error fetching donation history:', error);
-      setHistory([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      const r = await api.get('/donation-history/donation-history');
+      setHistory(r.data.success ? r.data.donationHistory || [] : []);
+    } catch { setHistory([]); }
+    finally { setLoading(false); setRefreshing(false); }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchHistory();
-  };
+  const filtered = history.filter(item => {
+    if (filter === 'all') return true;
+    const d = new Date(item.completedAt || item.createdAt), now = new Date();
+    if (filter === 'thisMonth') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    return d.getFullYear() === now.getFullYear();
+  });
 
-  const filterHistory = () => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    return history.filter((item) => {
-      if (filter === 'all') return true;
-      const donationDate = new Date(item.completedAt || item.createdAt);
-      if (filter === 'thisMonth') {
-        return (
-          donationDate.getMonth() === currentMonth &&
-          donationDate.getFullYear() === currentYear
-        );
-      }
-      if (filter === 'thisYear') {
-        return donationDate.getFullYear() === currentYear;
-      }
-      return true;
-    });
-  };
-
-  const filteredHistory = filterHistory();
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#DC2626" />
-      </View>
-    );
-  }
+  if (loading) return <View style={dh.loading}><ActivityIndicator size="large" color="#C8102E" /></View>;
 
   return (
-    <View style={styles.container}>
-      {/* Filter */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[styles.filterButton, filter === 'all' && styles.filterButtonActive]}
-          onPress={() => setFilter('all')}
-        >
-          <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
-            All
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.filterButton, filter === 'thisMonth' && styles.filterButtonActive]}
-          onPress={() => setFilter('thisMonth')}
-        >
-          <Text style={[styles.filterText, filter === 'thisMonth' && styles.filterTextActive]}>
-            This Month
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.filterButton, filter === 'thisYear' && styles.filterButtonActive]}
-          onPress={() => setFilter('thisYear')}
-        >
-          <Text style={[styles.filterText, filter === 'thisYear' && styles.filterTextActive]}>
-            This Year
-          </Text>
-        </TouchableOpacity>
+    <View style={dh.root}>
+      <View style={dh.filterBar}>
+        {(['all', 'thisMonth', 'thisYear'] as const).map(f => (
+          <TouchableOpacity key={f} style={[dh.filterBtn, filter === f && dh.filterBtnActive]} onPress={() => setFilter(f)}>
+            <Text style={[dh.filterTxt, filter === f && dh.filterTxtActive]}>{f === 'all' ? 'All' : f === 'thisMonth' ? 'This Month' : 'This Year'}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
-
-      {/* Stats */}
-      <View style={styles.statsBar}>
-        <Text style={styles.statsText}>
-          Total: {filteredHistory.length} donations
-        </Text>
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {filteredHistory.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>📜</Text>
-            <Text style={styles.emptyStateText}>No donation history</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Donation records will appear here once donors complete their donations
-            </Text>
-          </View>
+      <View style={dh.statsBar}><Text style={dh.statsTxt}>🩸 {filtered.length} donation{filtered.length !== 1 ? 's' : ''}</Text></View>
+      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchHistory(); }} tintColor="#C8102E" />} showsVerticalScrollIndicator={false}>
+        {filtered.length === 0 ? (
+          <View style={dh.empty}><Text style={dh.emptyIcon}>📜</Text><Text style={dh.emptyTitle}>No donation history</Text><Text style={dh.emptySub}>Records appear once donors complete donations</Text></View>
         ) : (
-          filteredHistory.map((donation) => (
-            <View key={donation._id} style={styles.donationCard}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.bloodGroupBadge, { backgroundColor: '#DC2626' }]}>
-                  <Text style={styles.bloodGroupText}>{donation.donorBloodGroup || donation.bloodGroup}</Text>
+          <View style={dh.list}>
+            {filtered.map(d => (
+              <View key={d._id} style={dh.card}>
+                <View style={dh.cardTop}>
+                  <View style={dh.bgBadge}><Text style={dh.bgBadgeTxt}>{d.donorBloodGroup || d.bloodGroup}</Text></View>
+                  <Text style={dh.cardDate}>{new Date(d.completedAt || d.createdAt).toLocaleDateString()}</Text>
                 </View>
-                <Text style={styles.dateText}>
-                  {new Date(donation.completedAt || donation.createdAt).toLocaleDateString()}
-                </Text>
-              </View>
-
-              <View style={styles.cardBody}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Donor:</Text>
-                  <Text style={styles.infoValue}>{donation.donorName || 'N/A'}</Text>
-                </View>
-                {donation.donorPhone && (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Phone:</Text>
-                    <Text style={styles.infoValue}>{donation.donorPhone}</Text>
-                  </View>
-                )}
-                {donation.address && (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Location:</Text>
-                    <Text style={styles.infoValue}>{donation.address}</Text>
-                  </View>
-                )}
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Status:</Text>
-                  <View style={[
-                    styles.statusBadgeSmall,
-                    { backgroundColor: donation.status === 'completed' ? '#D1FAE5' : '#DBEAFE' }
-                  ]}>
-                    <Text style={[
-                      styles.statusTextSmall,
-                      { color: donation.status === 'completed' ? '#065F46' : '#1E40AF' }
-                    ]}>
-                      {donation.status.charAt(0).toUpperCase() + donation.status.slice(1)}
-                    </Text>
+                <View style={dh.cardBody}>
+                  <DR label="Donor" value={d.donorName || 'N/A'} />
+                  {d.donorPhone && <DR label="Phone" value={d.donorPhone} />}
+                  {d.address   && <DR label="Location" value={d.address} />}
+                  <View style={dh.statusRow}>
+                    <Text style={dh.drLbl}>Status</Text>
+                    <View style={[dh.statusBadge, { backgroundColor: d.status === 'completed' ? '#DCFCE7' : '#DBEAFE' }]}>
+                      <Text style={[dh.statusTxt, { color: d.status === 'completed' ? '#166534' : '#1E40AF' }]}>{d.status?.charAt(0).toUpperCase() + d.status?.slice(1)}</Text>
+                    </View>
                   </View>
                 </View>
               </View>
-            </View>
-          ))
+            ))}
+          </View>
         )}
       </ScrollView>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    padding: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    gap: 8,
-  },
-  filterButton: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-  },
-  filterButtonActive: {
-    backgroundColor: '#DC2626',
-  },
-  filterText: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  filterTextActive: {
-    color: '#fff',
-  },
-  statsBar: {
-    backgroundColor: '#DBEAFE',
-    padding: 12,
-    alignItems: 'center',
-  },
-  statsText: {
-    fontSize: 14,
-    color: '#1E40AF',
-    fontWeight: '500',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  donationCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F9FAFB',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  bloodGroupBadge: {
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  bloodGroupText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  dateText: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  cardBody: {
-    padding: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    width: 80,
-    fontWeight: '500',
-  },
-  infoValue: {
-    fontSize: 14,
-    color: '#111827',
-    flex: 1,
-  },
-  statusBadgeSmall: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-  },
-  statusTextSmall: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 48,
-    marginTop: 60,
-  },
-  emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyStateText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
+const DR = ({ label, value }: { label: string; value: string }) => (
+  <View style={dh.dr}><Text style={dh.drLbl}>{label}</Text><Text style={dh.drVal}>{value}</Text></View>
+);
+const dh = StyleSheet.create({
+  root:        { flex: 1, backgroundColor: '#F9F5F5' },
+  loading:     { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  filterBar:   { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB', gap: 8 },
+  filterBtn:   { flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  filterBtnActive: { backgroundColor: '#C8102E' },
+  filterTxt:   { fontSize: 13, color: '#6B7280', fontWeight: '600' },
+  filterTxtActive: { color: '#fff' },
+  statsBar:    { backgroundColor: '#DBEAFE', padding: 10, alignItems: 'center' },
+  statsTxt:    { fontSize: 13, color: '#1E40AF', fontWeight: '700' },
+  list:        { padding: 14 },
+  card:        { backgroundColor: '#fff', borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
+  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, backgroundColor: '#F9F5F5', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  bgBadge:     { backgroundColor: '#C8102E', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8 },
+  bgBadgeTxt:  { color: '#fff', fontWeight: '800', fontSize: 13 },
+  cardDate:    { fontSize: 13, color: '#6B7280', fontWeight: '500' },
+  cardBody:    { padding: 14 },
+  dr:          { flexDirection: 'row', marginBottom: 7 },
+  drLbl:       { width: 75, fontSize: 13, color: '#6B7280', fontWeight: '600' },
+  drVal:       { flex: 1, fontSize: 13, color: '#1A0A0F' },
+  statusRow:   { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  statusTxt:   { fontSize: 12, fontWeight: '700' },
+  empty:       { alignItems: 'center', paddingVertical: 80 },
+  emptyIcon:   { fontSize: 52, opacity: 0.3, marginBottom: 12 },
+  emptyTitle:  { fontSize: 18, fontWeight: '800', color: '#1A0A0F', marginBottom: 6 },
+  emptySub:    { fontSize: 14, color: '#6B7280', textAlign: 'center' },
 });
-
+export { DonationHistoryScreen };
 export default DonationHistoryScreen;

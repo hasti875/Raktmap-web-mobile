@@ -147,9 +147,9 @@ export function HospitalDashboard({ onNavigate }: { onNavigate?: (section: strin
             return R * c;
           };
 
-          // Hospital location (Charusat coordinates)
-          const hospitalLat = 22.6013;
-          const hospitalLng = 72.8327;
+          // Hospital location (Charusat Hospital, Gujarat)
+          const hospitalLat = 22.602556127219323;
+          const hospitalLng = 72.82048814218332;
 
           // Filter to only donors who have responded (have location data) and show top 5
           const respondedDonors = donors

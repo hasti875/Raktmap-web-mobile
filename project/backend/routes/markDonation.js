@@ -3,6 +3,10 @@ const DonorResponse = require('../models/DonorLocationResponse');
 const BloodRequest = require('../models/BloodRequest');
 const Donor = require('../models/Donor');
 const DonationHistory = require('../models/DonationHistory');
+const BloodStock = require('../models/BloodStock');
+const Notification = require('../models/Notification');
+const { broadcastNotification } = require('../utils/notificationStream');
+const { sendDonationCertificate } = require('../services/emailService');
 const mongoose = require('mongoose');
 const router = express.Router();
 
@@ -175,6 +179,81 @@ router.post('/mark-donation', async (req, res) => {
       console.log('Created new request:', bloodRequest._id);
     }
 
+    // ============ CHECK IF REQUEST IS ALREADY FULFILLED ============
+    const isRequestFulfilled = bloodRequest.status === 'fulfilled' || 
+                               bloodRequest.confirmedUnits >= bloodRequest.quantity;
+    
+    let excessDonation = false;
+    if (isRequestFulfilled) {
+      console.log('⚠️ Request already fulfilled! Redirecting to blood stock...');
+      excessDonation = true;
+      
+      // Calculate expiry date (35 days from today for blood storage)
+      const collectionDate = new Date();
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 35);
+      
+      // Add to blood stock
+      const donorBloodGroup = donorRecord?.bloodGroup || bloodRequest.bloodGroup;
+      try {
+        // Find or create blood stock for this hospital and blood group
+        let bloodStock = await BloodStock.findOne({
+          hospitalId: bloodRequest.hospitalId,
+          bloodGroup: donorBloodGroup
+        });
+
+        if (bloodStock) {
+          // Update existing stock
+          bloodStock.unitsAvailable += 1;
+          bloodStock.lastUpdated = collectionDate;
+          if (!bloodStock.expiryDate || bloodStock.expiryDate < expiryDate) {
+            // Update to the latest expiry date if it's newer
+            bloodStock.expiryDate = expiryDate;
+          }
+          await bloodStock.save();
+          console.log(`✅ Added 1 unit to existing stock. Total: ${bloodStock.unitsAvailable} units`);
+        } else {
+          // Create new stock entry
+          bloodStock = await BloodStock.create({
+            hospitalId: bloodRequest.hospitalId,
+            bloodGroup: donorBloodGroup,
+            unitsAvailable: 1,
+            expiryDate: expiryDate,
+            lastUpdated: collectionDate,
+            notes: `Excess donation from fulfilled request ${bloodRequest._id}`
+          });
+          console.log(`✅ Created new stock entry with 1 unit`);
+        }
+
+        // Send notification to hospital
+        const notificationData = {
+          hospitalId: bloodRequest.hospitalId,
+          type: 'success',
+          title: 'Excess Donation Added to Stock',
+          message: `${donorRecord ? donorRecord.name : (locationRecord.userName || donorName || 'Donor')} donated ${donorBloodGroup} blood. Request was already fulfilled, so 1 unit was added to blood stock inventory.`,
+          meta: {
+            donorName: donorRecord ? donorRecord.name : (locationRecord.userName || donorName || 'Unknown Donor'),
+            bloodGroup: donorBloodGroup,
+            bloodStockId: bloodStock._id,
+            requestId: bloodRequest._id,
+            collectionDate: collectionDate,
+            expiryDate: expiryDate
+          }
+        };
+
+        const notification = await Notification.create(notificationData);
+        console.log('✅ Notification created:', notification._id);
+
+        // Broadcast to connected clients
+        broadcastNotification(notification);
+        console.log('✅ Notification broadcasted via SSE');
+        
+      } catch (stockError) {
+        console.error('❌ Error adding to blood stock:', stockError);
+        // Continue anyway, we'll still record the donation
+      }
+    }
+
     // Create donation history using location data primarily
     const donation = await DonationHistory.create({
       donorId: donorRecord ? donorRecord._id.toString() : donorId,
@@ -195,11 +274,13 @@ router.post('/mark-donation', async (req, res) => {
 
     console.log('✅ Donation saved:', donation._id);
 
-    // Update donor's last donation date - CRITICAL for 3-month rule
+    // Update donor's last donation date and total donations - CRITICAL for 3-month rule and points
     if (donorRecord) {
       donorRecord.lastDonationDate = new Date();
+      donorRecord.totalDonations = (donorRecord.totalDonations || 0) + 1;
       await donorRecord.save();
       console.log(`✅ Updated donor ${donorRecord.name} last donation date to ${donorRecord.lastDonationDate}`);
+      console.log(`✅ Updated donor ${donorRecord.name} total donations to ${donorRecord.totalDonations}`);
     } else {
       // Try to find donor by phone from the donation history we just created
       try {
@@ -211,38 +292,44 @@ router.post('/mark-donation', async (req, res) => {
         
         if (matchedDonor) {
           matchedDonor.lastDonationDate = new Date();
+          matchedDonor.totalDonations = (matchedDonor.totalDonations || 0) + 1;
           await matchedDonor.save();
           console.log(`✅ Updated donor ${matchedDonor.name} last donation date via phone match`);
+          console.log(`✅ Updated donor ${matchedDonor.name} total donations to ${matchedDonor.totalDonations}`);
         } else {
-          console.log('⚠️ Could not find donor record to update lastDonationDate');
+          console.log('⚠️ Could not find donor record to update lastDonationDate and totalDonations');
         }
       } catch (err) {
-        console.log('Could not update donor last donation date:', err.message);
+        console.log('Could not update donor last donation date and total donations:', err.message);
       }
     }
 
-    // Update blood request - increment confirmedUnits
-    try {
-      // Atomically increment confirmedUnits
-      const updatedRequest = await BloodRequest.findOneAndUpdate(
-        { _id: bloodRequest._id },
-        { $inc: { confirmedUnits: 1 } },
-        { new: true }
-      );
+    // Update blood request - increment confirmedUnits (only if not already fulfilled)
+    if (!excessDonation) {
+      try {
+        // Atomically increment confirmedUnits
+        const updatedRequest = await BloodRequest.findOneAndUpdate(
+          { _id: bloodRequest._id },
+          { $inc: { confirmedUnits: 1 } },
+          { new: true }
+        );
 
-      if (updatedRequest.confirmedUnits >= updatedRequest.quantity) {
-        updatedRequest.status = 'fulfilled';
-        updatedRequest.fulfilledAt = new Date();
-        updatedRequest.batchInProgress = false; // Stop batches
-        await updatedRequest.save();
-        console.log('✅ Request fulfilled:', updatedRequest._id, 'Status:', updatedRequest.status);
-      } else {
-        console.log(`✅ request confirmedUnits updated: ${updatedRequest.confirmedUnits}/${updatedRequest.quantity}`);
-        // Note: We do NOT trigger sendNextBatch here. 
-        // The response window checker (cron/poll) will handle it if needed.
+        if (updatedRequest.confirmedUnits >= updatedRequest.quantity) {
+          updatedRequest.status = 'fulfilled';
+          updatedRequest.fulfilledAt = new Date();
+          updatedRequest.batchInProgress = false; // Stop batches
+          await updatedRequest.save();
+          console.log('✅ Request fulfilled:', updatedRequest._id, 'Status:', updatedRequest.status);
+        } else {
+          console.log(`✅ request confirmedUnits updated: ${updatedRequest.confirmedUnits}/${updatedRequest.quantity}`);
+          // Note: We do NOT trigger sendNextBatch here. 
+          // The response window checker (cron/poll) will handle it if needed.
+        }
+      } catch (err) {
+        console.log('⚠️ Request update failed (non-critical):', err.message);
       }
-    } catch (err) {
-      console.log('⚠️ Request update failed (non-critical):', err.message);
+    } else {
+      console.log('⚠️ Skipping request update - donation added to stock instead');
     }
 
     // Remove from live map
@@ -259,9 +346,43 @@ router.post('/mark-donation', async (req, res) => {
     // Keep lock permanently - donor has donated
     console.log('🔒 Permanently locked:', donorId, '(donated)');
 
+    // Send donation certificate to donor's email (non-blocking)
+    const sendCertificate = async () => {
+      try {
+        const donorEmail = donorRecord?.email || (await Donor.findOne({ 
+          phone: donation.donorPhone 
+        }))?.email;
+        
+        if (donorEmail) {
+          await sendDonationCertificate(
+            donorEmail,
+            donation.donorName,
+            donation.completedAt,
+            donation.donorBloodGroup,
+            donorId,
+            1 // units
+          );
+          console.log('✅ Donation certificate sent to:', donorEmail);
+        } else {
+          console.log('⚠️ No email found for donor, certificate not sent');
+        }
+      } catch (certError) {
+        console.error('❌ Error sending certificate (non-critical):', certError.message);
+      }
+    };
+    
+    // Send certificate asynchronously (don't wait for it)
+    sendCertificate();
+
+    const responseMessage = excessDonation 
+      ? `Request already fulfilled! Donation from ${donation.donorName} has been added to blood stock inventory.`
+      : `Donation completed for ${donation.donorName}`;
+
     res.json({
       success: true,
-      message: `Donation completed for ${donation.donorName}`,
+      message: responseMessage,
+      excessDonation: excessDonation,
+      addedToStock: excessDonation,
       donationHistory: {
         id: donation._id,
         donorName: donation.donorName,

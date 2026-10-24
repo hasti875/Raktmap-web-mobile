@@ -12,6 +12,8 @@ export interface Hospital {
   email: string;
   phone: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   emergencyContact: string;
   radius: number;
   status: 'active' | 'pending' | 'suspended';

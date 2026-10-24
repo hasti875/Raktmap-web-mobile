@@ -8,6 +8,8 @@ const HospitalSchema = new mongoose.Schema({
   phone: { type: String },
   emergencyContact: { type: String },
   address: { type: String },
+  latitude: { type: Number },
+  longitude: { type: Number },
   radius: { type: Number, default: 10 },
   emailNotifications: { type: Boolean, default: true },
   smsNotifications: { type: Boolean, default: true },

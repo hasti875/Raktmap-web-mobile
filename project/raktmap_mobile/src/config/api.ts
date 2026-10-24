@@ -1,19 +1,21 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 
-const API_BASE_URL = __DEV__
-  ? 'http://192.168.21.99:5000'  // Replace with your actual local IP
-  : 'http://localhost:5000';
+// const API_BASE_URL = __DEV__
+//   ? 'https://jule-uneroding-tremulously.ngrok-free.dev'
+//   : 'https://jule-uneroding-tremulously.ngrok-free.dev';
+  const API_BASE_URL = __DEV__
+  ? 'http://192.168.1.73:5000' // Local IP for Android emulator
+  : 'http://192.168.1.73:5000'; // Local IP for Android emulator
 
 console.log('Mobile API Base URL:', API_BASE_URL);
 
-  const api = axios.create({
+const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
-
+    'ngrok-skip-browser-warning': 'true',  // ✅ Required for ngrok
   },
 });
 
@@ -25,8 +27,6 @@ api.interceptors.request.use(
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-
-      // Log request for debugging
       if (__DEV__) {
         console.log('🌐 API Request:', config.method?.toUpperCase(), config.url);
         console.log('📦 Data:', config.data);
@@ -36,22 +36,18 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
-    // Log successful responses in dev mode
     if (__DEV__) {
       console.log('✅ API Response:', response.config.url, response.status);
     }
     return response;
   },
   async (error) => {
-    // Log errors in dev mode
     if (__DEV__) {
       console.log('❌ API Error:', error.config?.url);
       console.log('Status:', error.response?.status);
@@ -62,14 +58,13 @@ api.interceptors.response.use(
       } else if (error.message === 'Network Error') {
         console.log('🌐 Network Error - check:');
         console.log('  1. Backend is running on port 5000');
-        console.log('  2. Phone and PC on same WiFi');
+        console.log('  2. ngrok is running: ngrok http 5000');
         console.log('  3. API_BASE_URL:', API_BASE_URL);
       }
     }
 
     if (error.response?.status === 401 || error.response?.status === 403) {
-      console.log('Session Expired or Invalid - Clearing Auth State');
-      
+      console.log('Session Expired - Clearing Auth State');
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userRole');
       await AsyncStorage.removeItem('userData');

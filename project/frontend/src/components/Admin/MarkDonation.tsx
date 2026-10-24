@@ -342,9 +342,16 @@ export function MarkDonation({}: MarkDonationProps) {
 
       if (result.success) {
         setVerificationStatus('verified');
-        const successMessage = result.donationHistory.wasOriginalRequest 
-          ? `Donation marked successfully for ${result.donationHistory.donorName}! Original SMS request fulfilled.`
-          : `Donation marked successfully for ${result.donationHistory.donorName}! Compatible request fulfilled.`;
+        
+        let successMessage;
+        if (result.excessDonation || result.addedToStock) {
+          // Request was already fulfilled, donation added to stock
+          successMessage = `Request Already Fulfilled! Donation from ${result.donationHistory.donorName} (${result.donationHistory.bloodGroup}) has been added to blood stock inventory instead.`;
+        } else if (result.donationHistory.wasOriginalRequest) {
+          successMessage = `Donation marked successfully for ${result.donationHistory.donorName}! Original SMS request fulfilled.`;
+        } else {
+          successMessage = `Donation marked successfully for ${result.donationHistory.donorName}! Compatible request fulfilled.`;
+        }
         
         setMessage({ 
           type: 'success', 

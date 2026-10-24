@@ -1,396 +1,137 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-  Alert,
-  TouchableOpacity,
-  Linking,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, Alert, TouchableOpacity, Linking, FlatList } from 'react-native';
 import { api } from '../../config/api';
 
+const BG_FILTERS = ['all', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
 const DonorsScreen = () => {
-  const [donors, setDonors] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [donors, setDonors]         = useState<any[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedBloodGroup, setSelectedBloodGroup] = useState<string>('all');
+  const [selBg, setSelBg]           = useState('all');
 
-  const bloodGroups = ['all', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-
-  useEffect(() => {
-    fetchDonors();
-  }, []);
+  useEffect(() => { fetchDonors(); }, []);
 
   const fetchDonors = async () => {
     try {
-      const response = await api.get('/donors');
-      setDonors(response.data || []);
-    } catch (error) {
-      console.error('Error fetching donors:', error);
-      Alert.alert('Error', 'Failed to load donors');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      const r = await api.get('/donors');
+      setDonors(r.data || []);
+    } catch { Alert.alert('Error', 'Failed to load donors'); }
+    finally { setLoading(false); setRefreshing(false); }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchDonors();
-  };
+  const filtered  = donors.filter(d => selBg === 'all' || d.bloodGroup === selBg);
+  const available = filtered.filter(d => d.isAvailable || d.status === 'available');
+  const isAvail   = (d: any) => d.status === 'available' || d.isAvailable;
 
-  const handleCall = (phone: string) => {
-    Linking.openURL(`tel:${phone}`);
-  };
-
-  const handleSMS = (phone: string) => {
-    Linking.openURL(`sms:${phone}`);
-  };
-
-  const filteredDonors = donors.filter((donor) =>
-    selectedBloodGroup === 'all' ? true : donor.bloodGroup === selectedBloodGroup
-  );
-
-  const availableDonors = filteredDonors.filter((donor) => donor.isAvailable);
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color="#DC2626" />
-      </View>
-    );
-  }
+  if (loading) return <View style={s.loading}><ActivityIndicator size="large" color="#C8102E" /></View>;
 
   return (
-    <View style={styles.container}>
-      {/* Blood Group Filter */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterContainer}
-        contentContainerStyle={styles.filterContent}
-      >
-        {bloodGroups.map((group) => {
-          // Calculate count for this group
-          const count = donors.filter((d) =>
-            group === 'all' ? true : d.bloodGroup === group
-          ).length;
-
-          return (
-            <TouchableOpacity
-              key={group}
-              style={[
-                styles.filterChip,
-                selectedBloodGroup === group && styles.filterChipActive,
-              ]}
-              onPress={() => setSelectedBloodGroup(group)}
-            >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  selectedBloodGroup === group && styles.filterChipTextActive,
-                ]}
-              >
-                {group === 'all' ? 'All' : group} {count > 0 && `(${count})`}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      {/* Stats */}
-      <View style={styles.statsBar}>
-        <Text style={styles.statsText}>
-          {availableDonors.length} of {filteredDonors.length} donors available
-        </Text>
+    <View style={s.root}>
+      {/* Blood group chips */}
+      <View style={s.filterWrap}>
+        <FlatList horizontal showsHorizontalScrollIndicator={false} data={BG_FILTERS} keyExtractor={i => i}
+          contentContainerStyle={s.filterList}
+          renderItem={({ item }) => {
+            const cnt = item === 'all' ? donors.length : donors.filter(d => d.bloodGroup === item).length;
+            return (
+              <TouchableOpacity style={[s.chip, selBg === item && s.chipActive]} onPress={() => setSelBg(item)}>
+                <Text style={[s.chipTxt, selBg === item && s.chipTxtActive]}>{item === 'all' ? 'All' : item}{cnt > 0 ? ` (${cnt})` : ''}</Text>
+              </TouchableOpacity>
+            );
+          }}
+        />
       </View>
 
-      {/* Donor List */}
-      <ScrollView
-        style={styles.scrollView}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {filteredDonors.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>👥</Text>
-            <Text style={styles.emptyStateText}>No donors found</Text>
-            <Text style={styles.emptyStateSubtext}>
-              {selectedBloodGroup === 'all'
+      {/* Stats bar */}
+      <View style={s.statsBar}>
+        <Text style={s.statsTxt}>✅ {available.length} available  ·  Total: {filtered.length}</Text>
+      </View>
 
-                ? 'No donors registered yet'
-                : `No donors with blood group ${selectedBloodGroup}`}
-            </Text>
+      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchDonors(); }} tintColor="#C8102E" />} showsVerticalScrollIndicator={false}>
+        {filtered.length === 0 ? (
+          <View style={s.empty}>
+            <Text style={s.emptyIcon}>👥</Text>
+            <Text style={s.emptyTitle}>No donors found</Text>
+            <Text style={s.emptySub}>{selBg === 'all' ? 'No donors registered yet' : `No donors with blood group ${selBg}`}</Text>
           </View>
         ) : (
-          filteredDonors.map((donor) => (
-            <View key={donor._id} style={styles.donorCard}>
-              <View style={styles.donorHeader}>
-                <View>
-                  <Text style={styles.donorName}>{donor.name}</Text>
-                  <Text style={styles.donorId}>ID: {donor.uniqueId || donor._id}</Text>
+          <View style={s.list}>
+            {filtered.map(donor => (
+              <View key={donor._id} style={s.card}>
+                <View style={s.cardTop}>
+                  <View style={s.cardLeft}>
+                    <View style={s.avatar}><Text style={s.avatarTxt}>{donor.bloodGroup}</Text></View>
+                    <View>
+                      <Text style={s.donorName}>{donor.name}</Text>
+                      <Text style={s.donorId}>ID: {donor.uniqueId || donor._id?.substring(0, 14)}…</Text>
+                    </View>
+                  </View>
+                  <View style={[s.availBadge, { backgroundColor: isAvail(donor) ? '#DCFCE7' : '#FEE2E2' }]}>
+                    <Text style={[s.availTxt, { color: isAvail(donor) ? '#166534' : '#991B1B' }]}>{isAvail(donor) ? '✓ Available' : '✗ Unavailable'}</Text>
+                  </View>
                 </View>
-                <View style={[styles.bloodGroupBadge, { backgroundColor: '#DC2626' }]}>
-                  <Text style={styles.bloodGroupText}>{donor.bloodGroup}</Text>
-                </View>
-              </View>
 
-              <View style={styles.donorBody}>
-                <View style={styles.statusRow}>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      {
-                        backgroundColor: (donor.status === 'available' || donor.isAvailable) ? '#D1FAE5' : '#FEE2E2',
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        {
-                          color: (donor.status === 'available' || donor.isAvailable) ? '#065F46' : '#991B1B',
-                        },
-                      ]}
-                    >
-                      {(donor.status === 'available' || donor.isAvailable) ? '✓ Available' : '✗ Unavailable'}
-                    </Text>
-                  </View>
+                <View style={s.cardBody}>
+                  {[['📧', donor.email], ['📱', donor.phone], ...(donor.address ? [['📍', donor.address]] : []), ['🩸', `${donor.totalDonations || 0} donations`], ...(donor.lastDonationDate ? [['📅', `Last: ${new Date(donor.lastDonationDate).toLocaleDateString()}`]] : [])].map(([icon, text]) => (
+                    <View key={text as string} style={s.infoRow}>
+                      <Text style={s.infoIcon}>{icon as string}</Text>
+                      <Text style={s.infoTxt}>{text as string}</Text>
+                    </View>
+                  ))}
                 </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoIcon}>📧</Text>
-                  <Text style={styles.infoText}>{donor.email}</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoIcon}>📱</Text>
-                  <Text style={styles.infoText}>{donor.phone}</Text>
-                </View>
-                {donor.address && (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoIcon}>📍</Text>
-                    <Text style={styles.infoText}>{donor.address}</Text>
-                  </View>
-                )}
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoIcon}>🩸</Text>
-                  <Text style={styles.infoText}>{donor.totalDonations || 0} donations</Text>
-                </View>
-                {donor.lastDonationDate && (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoIcon}>📅</Text>
-                    <Text style={styles.infoText}>
-                      Last: {new Date(donor.lastDonationDate).toLocaleDateString()}
-                    </Text>
-                  </View>
-                )}
-              </View>
 
-              {/* Action Buttons */}
-              <View style={styles.cardActions}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.callButton]}
-                  onPress={() => handleCall(donor.phone)}
-                >
-                  <Text style={styles.actionButtonText}>📞 Call</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.smsButton]}
-                  onPress={() => handleSMS(donor.phone)}
-                >
-                  <Text style={styles.actionButtonText}>💬 SMS</Text>
-                </TouchableOpacity>
+                <View style={s.actions}>
+                  <TouchableOpacity style={s.callBtn} onPress={() => Linking.openURL(`tel:${donor.phone}`)} activeOpacity={0.8}>
+                    <Text style={s.callTxt}>📞 Call</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.smsBtn} onPress={() => Linking.openURL(`sms:${donor.phone}`)} activeOpacity={0.8}>
+                    <Text style={s.smsTxt}>💬 SMS</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          ))
+            ))}
+          </View>
         )}
       </ScrollView>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-  },
-  filterContainer: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    // Set a maximum height to prevent it from growing too large
-    maxHeight: 60,
-  },
-  filterContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 10, // Reduced vertical padding
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 4, // Reduced from 8 to make it smaller
-    borderRadius: 16, // Adjusted for smaller height
-    backgroundColor: '#F3F4F6',
-    marginRight: 8,
-    height: 32, // Explicit small height
-    justifyContent: 'center',
-  },
-  filterChipActive: {
-    backgroundColor: '#DC2626',
-    borderColor: '#DC2626',
-  },
-  filterChipText: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  filterChipCount: {
-    fontSize: 12,
-    color: '#6B7280',
-    opacity: 0.8,
-  },
-  filterChipTextActive: {
-    color: '#fff',
-  },
-  statsBar: {
-    backgroundColor: '#FEF3C7',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#FDE68A',
-  },
-  statsText: {
-    fontSize: 14,
-    color: '#92400E',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  donorCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  donorHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F9FAFB',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  donorName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  donorId: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  bloodGroupBadge: {
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  bloodGroupText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  donorBody: {
-    padding: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  infoIcon: {
-    fontSize: 16,
-    marginRight: 8,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#374151',
-  },
-  statusRow: {
-    marginBottom: 12,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    alignSelf: 'flex-start',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  cardActions: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  actionButton: {
-    flex: 1,
-    padding: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRightWidth: 1,
-    borderRightColor: '#E5E7EB',
-  },
-  callButton: {
-    backgroundColor: '#DBEAFE',
-  },
-  smsButton: {
-    backgroundColor: '#D1FAE5',
-    borderRightWidth: 0,
-  },
-  actionButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 48,
-    marginTop: 60,
-  },
-  emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyStateText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
+const s = StyleSheet.create({
+  root:        { flex: 1, backgroundColor: '#F9F5F5' },
+  loading:     { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  filterWrap:  { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB', maxHeight: 56 },
+  filterList:  { paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
+  chip:        { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20, backgroundColor: '#F3F4F6', height: 32, justifyContent: 'center' },
+  chipActive:  { backgroundColor: '#C8102E' },
+  chipTxt:     { fontSize: 13, color: '#6B7280', fontWeight: '600' },
+  chipTxtActive:{ color: '#fff' },
+  statsBar:    { backgroundColor: '#FEF3C7', padding: 10, borderBottomWidth: 1, borderBottomColor: '#FDE68A' },
+  statsTxt:    { fontSize: 13, color: '#92400E', fontWeight: '700', textAlign: 'center' },
+  list:        { padding: 14 },
+  card:        { backgroundColor: '#fff', borderRadius: 18, marginBottom: 14, borderWidth: 1, borderColor: '#E5E7EB', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
+  cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, backgroundColor: '#F9F5F5', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  cardLeft:    { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  avatar:      { width: 48, height: 48, borderRadius: 24, backgroundColor: '#FEE2E2', borderWidth: 2, borderColor: '#C8102E', alignItems: 'center', justifyContent: 'center' },
+  avatarTxt:   { fontSize: 15, fontWeight: '800', color: '#C8102E' },
+  donorName:   { fontSize: 15, fontWeight: '700', color: '#1A0A0F' },
+  donorId:     { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  availBadge:  { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  availTxt:    { fontSize: 11, fontWeight: '700' },
+  cardBody:    { padding: 14 },
+  infoRow:     { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  infoIcon:    { fontSize: 16, marginRight: 8, width: 22 },
+  infoTxt:     { fontSize: 14, color: '#374151', flex: 1 },
+  actions:     { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#E5E7EB' },
+  callBtn:     { flex: 1, padding: 13, alignItems: 'center', backgroundColor: '#DBEAFE', borderRightWidth: 1, borderRightColor: '#E5E7EB' },
+  callTxt:     { fontSize: 14, fontWeight: '700', color: '#1E40AF' },
+  smsBtn:      { flex: 1, padding: 13, alignItems: 'center', backgroundColor: '#DCFCE7' },
+  smsTxt:      { fontSize: 14, fontWeight: '700', color: '#166534' },
+  empty:       { alignItems: 'center', paddingVertical: 80 },
+  emptyIcon:   { fontSize: 52, opacity: 0.3, marginBottom: 12 },
+  emptyTitle:  { fontSize: 18, fontWeight: '800', color: '#1A0A0F', marginBottom: 6 },
+  emptySub:    { fontSize: 14, color: '#6B7280', textAlign: 'center' },
 });
 
 export default DonorsScreen;

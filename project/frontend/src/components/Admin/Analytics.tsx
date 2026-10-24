@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { BarChart2, TrendingUp, Users } from 'lucide-react';
 // Remove this problematic import
 // import { Chart } from '../Shared/Chart';
@@ -17,6 +17,12 @@ interface ChartData {
   label: string;
   value: number;
   color?: string;
+}
+
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
 }
 
 // Move SimpleChart outside the component to prevent re-creation
@@ -149,10 +155,10 @@ export function Analytics() {
   const [error, setError] = useState<string | null>(null);
 
   // Fetch analytics stats
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       console.log('Fetching analytics stats...');
-      const response = await axios.get('/admin/analytics/stats');
+      const response = await axios.get<ApiResponse<AnalyticsStats>>('/admin/analytics/stats');
       if (response.data && response.data.success) {
         setStats(response.data.data);
         setError(null);
@@ -162,10 +168,10 @@ export function Analytics() {
       console.log('Using fallback stats data');
       setError('API connection failed');
     }
-  };
+  }, []);
 
   // Fetch chart data based on selected type and period
-  const fetchChartData = async (chartType: ChartType, period: string = selectedPeriod) => {
+  const fetchChartData = useCallback(async (chartType: ChartType, period: string = selectedPeriod) => {
     try {
       console.log(`Fetching chart data for: ${chartType}, period: ${period}`);
       let endpoint = '';
@@ -182,7 +188,7 @@ export function Analytics() {
       }
 
       console.log('API endpoint:', endpoint);
-      const response = await axios.get(endpoint);
+  const response = await axios.get<ApiResponse<ChartData[]>>(endpoint);
       console.log('API response:', response.data);
       
       if (response.data && response.data.success && response.data.data) {
@@ -211,7 +217,7 @@ export function Analytics() {
       setChartData([{ label: 'Connection error', value: 0, color: '#ef4444' }]);
       setError('Failed to load chart data');
     }
-  };
+  }, [selectedPeriod]);
 
   // Handle chart selection
   const handleChartChange = (chartType: ChartType) => {
@@ -247,7 +253,7 @@ export function Analytics() {
     setChartData([{ label: 'Loading...', value: 0, color: '#6b7280' }]);
     fetchStats().catch(err => console.error('Initial stats fetch failed:', err));
     fetchChartData('requests', 'weeks').catch(err => console.error('Initial chart fetch failed:', err));
-  }, []);
+  }, [fetchChartData, fetchStats]);
 
   // Get chart configuration
   const getChartConfig = () => {

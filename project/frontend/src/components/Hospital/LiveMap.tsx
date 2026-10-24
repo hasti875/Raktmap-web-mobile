@@ -40,6 +40,12 @@ interface BloodRequest {
   hospitalName?: string;
 }
 
+interface HospitalProfile {
+  name?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 export function LiveMap() {
   const [radiusFilter, setRadiusFilter] = useState(50); // Increased default radius
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -50,13 +56,32 @@ export function LiveMap() {
   const [refreshing, setRefreshing] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
-
-  // Hospital location (Charusat University) - UPDATED TO CORRECT COORDINATES
-  const hospitalLocation = { lat: 22.6013, lng: 72.8327 };
+  const [hospitalName, setHospitalName] = useState('Hospital');
+  const [hospitalLocation, setHospitalLocation] = useState({ lat: 22.602556127219323, lng: 72.82048814218332 });
 
   // Toggle fullscreen mode
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
+  };
+
+  const fetchHospitalProfile = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/hospital/profile', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (response.data?.success) {
+        const hospital: HospitalProfile = response.data.hospital || {};
+        setHospitalName(hospital.name || 'Hospital');
+        if (typeof hospital.latitude === 'number' && typeof hospital.longitude === 'number') {
+          setHospitalLocation({ lat: hospital.latitude, lng: hospital.longitude });
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching hospital profile location:', error);
+    }
   };
 
   // Blood group compatibility function - FIXED LOGIC
@@ -159,7 +184,7 @@ export function LiveMap() {
           name: 'Test User 1',
           phone: '1234567890',
           donorId: 'TEST001',
-          location: { lat: 22.6013, lng: 72.8327 }, // Updated to correct Charusat coordinates
+          location: { lat: 22.602556127219323, lng: 72.82048814218332 }, // Charusat Hospital
           status: 'responded',
           responseTime: new Date().toISOString(),
           address: 'Test Address 1'
@@ -169,7 +194,7 @@ export function LiveMap() {
           name: 'Test User 2',
           phone: '0987654321',
           donorId: 'TEST002',
-          location: { lat: 22.6023, lng: 72.8337 }, // Updated to correct Charusat coordinates
+          location: { lat: 22.604556127219323, lng: 72.82248814218332 }, // Near Charusat Hospital
           status: 'responded',
           responseTime: new Date().toISOString(),
           address: 'Test Address 2'
@@ -297,8 +322,8 @@ export function LiveMap() {
   // NEW: Debug coordinates function
   const debugCoordinates = () => {
     console.log('=== COORDINATE DEBUGGING ===');
-    console.log('Hospital Location (Charusat):', hospitalLocation);
-    console.log('Expected Charusat coordinates: lat: 22.6013, lng: 72.8327');
+    console.log('Hospital Location (Charusat Hospital):', hospitalLocation);
+    console.log('Expected Charusat Hospital coordinates: lat: 22.602556127219323, lng: 72.82048814218332');
 
     donorResponses.forEach((donor, index) => {
       console.log(`\n--- Donor ${index + 1}: ${donor.name} ---`);
@@ -321,15 +346,15 @@ export function LiveMap() {
         console.log('Distance if lat/lng swapped:', swappedDistance.toFixed(2), 'km');
 
         // Check coordinate ranges
-        console.log('Lat in valid range (20-25)?', donor.location.lat >= 20 && donor.location.lat <= 25);
-        console.log('Lng in valid range (70-75)?', donor.location.lng >= 70 && donor.location.lng <= 75);
+        console.log('Lat in valid range (22-23)?', donor.location.lat >= 22 && donor.location.lat <= 23);
+        console.log('Lng in valid range (72-73)?', donor.location.lng >= 72 && donor.location.lng <= 73);
       }
     });
 
     setDebugInfo(prev => prev + `\n🔍 Coordinate debug completed - check console`);
   };
 
-  // NEW: Set nearby test users with correct Charusat coordinates
+  // NEW: Set nearby test users with correct Charusat Hospital coordinates
   const setNearbyTestUsers = () => {
     const nearbyUsers: DonorResponse[] = [
       {
@@ -337,30 +362,30 @@ export function LiveMap() {
         name: 'Nearby User 1',
         phone: '9999999991',
         donorId: 'NEAR001',
-        location: { lat: 22.6020, lng: 72.8330 }, // ~100m from Charusat
+        location: { lat: 22.604356127219324, lng: 72.82198814218333 }, // ~200m from Charusat Hospital
         status: 'responded',
         responseTime: new Date().toISOString(),
-        address: 'Very close to Charusat'
+        address: 'Very close to Charusat Hospital'
       },
       {
         _id: 'nearby-2',
         name: 'Nearby User 2',
         phone: '9999999992',
         donorId: 'NEAR002',
-        location: { lat: 22.6050, lng: 72.8350 }, // ~500m from Charusat
+        location: { lat: 22.606556127219323, lng: 72.82398814218332 }, // ~500m from Charusat Hospital
         status: 'responded',
         responseTime: new Date().toISOString(),
-        address: 'Close to Charusat'
+        address: 'Close to Charusat Hospital'
       },
       {
         _id: 'nearby-3',
         name: 'Nearby User 3',
         phone: '9999999993',
         donorId: 'NEAR003',
-        location: { lat: 22.6100, lng: 72.8400 }, // ~1km from Charusat
+        location: { lat: 22.609556127219323, lng: 72.82698814218333 }, // ~1km from Charusat Hospital
         status: 'responded',
         responseTime: new Date().toISOString(),
-        address: '1km from Charusat'
+        address: '1km from Charusat Hospital'
       }
     ];
 
@@ -418,20 +443,20 @@ export function LiveMap() {
         name: 'Force Test User 1',
         phone: '1111111111',
         donorId: 'FORCE001',
-        location: { lat: 22.6013, lng: 72.8327 }, // Exact Charusat location
+        location: { lat: 22.602556127219323, lng: 72.82048814218332 }, // Exact Charusat Hospital location
         status: 'responded',
         responseTime: new Date().toISOString(),
-        address: 'At Charusat Location'
+        address: 'At Charusat Hospital Location'
       },
       {
         _id: 'force-test-2',
         name: 'Force Test User 2',
         phone: '2222222222',
         donorId: 'FORCE002',
-        location: { lat: 22.6023, lng: 72.8337 }, // Very close to Charusat
+        location: { lat: 22.604556127219323, lng: 72.82248814218332 }, // Very close to Charusat Hospital
         status: 'responded',
         responseTime: new Date().toISOString(),
-        address: 'Near Charusat'
+        address: 'Near Charusat Hospital'
       }
     ];
 
@@ -446,6 +471,9 @@ export function LiveMap() {
       setDebugInfo('=== INITIALIZING LIVE MAP ===');
 
       try {
+        // Load hospital name and coordinates for the map marker.
+        await fetchHospitalProfile();
+
         // Test API connection first
         await testApiConnection();
 
@@ -789,7 +817,7 @@ export function LiveMap() {
                 console.log('Map donors being passed to CharusatMap:', mapDonors);
 
                 return filteredDonors.length > 0 ? (
-                  <CharusatMap donors={mapDonors} />
+                  <CharusatMap donors={mapDonors} hospitalLocation={hospitalLocation} hospitalName={hospitalName} />
                 ) : (
                   <div className="flex items-center justify-center h-full bg-gray-100 text-gray-500">
                     <div className="text-center">
@@ -1004,7 +1032,7 @@ export function LiveMap() {
 
                 return filteredDonors.length > 0 ? (
                   <div className="w-full h-full">
-                    <CharusatMap donors={mapDonors} />
+                    <CharusatMap donors={mapDonors} hospitalLocation={hospitalLocation} hospitalName={hospitalName} />
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full bg-gray-100 dark:bg-gray-900 text-gray-500">

@@ -151,10 +151,19 @@ const ScannerScreen = () => {
             });
 
             if (response.data.success) {
+                let resultMessage = response.data.message || 'Donation marked successfully.';
+                let resultTitle = 'Verified Successfully';
+                
+                // Check if this was an excess donation added to stock
+                if (response.data.excessDonation || response.data.addedToStock) {
+                    resultTitle = 'Request Already Fulfilled';
+                    resultMessage = `The request was already fulfilled. This donation has been added to blood stock inventory instead.`;
+                }
+                
                 setVerificationResult({
                     success: true,
-                    title: 'Verified Successfully',
-                    message: response.data.message || 'Donation marked successfully.'
+                    title: resultTitle,
+                    message: resultMessage
                 });
                 // Refresh recent list silently
                 fetchRecentDonations();

@@ -148,25 +148,23 @@ router.post('/settings/test-sms', smsLimiter, async (req, res) => {
     }
     
     const settings = await Settings.getSettings();
+    const providerApiKey = process.env.WHATSAPP_API_KEY || settings.smsApiKey || process.env.SMS_API_KEY || process.env.TWILIO_AUTH_TOKEN;
+    const providerSenderRaw = process.env.WHATSAPP_SENDER || settings.smsPhoneNumber || process.env.SMS_SENDER || settings.smsAccountSid || process.env.TWILIO_PHONE_NUMBER;
+    const providerSender = providerSenderRaw
+      ? providerSenderRaw.toString().trim().replace(/[^\d+]/g, '').replace(/^\+/, '')
+      : '';
+
     console.log('📋 Retrieved settings for SMS test:', {
-      hasAccountSid: !!settings.smsAccountSid,
-      hasAuthToken: !!settings.smsApiKey,
-      hasPhoneNumber: !!settings.smsPhoneNumber,
-      accountSidLength: settings.smsAccountSid?.length || 0,
-      authTokenLength: settings.smsApiKey?.length || 0,
-      phoneNumber: settings.smsPhoneNumber
+      hasApiKey: !!providerApiKey,
+      hasSender: !!providerSender,
+      apiKeyLength: providerApiKey?.length || 0,
+      sender: providerSender
     });
-    
-    // Use environment variables as fallback
-    const accountSid = settings.smsAccountSid || process.env.TWILIO_ACCOUNT_SID;
-    const authToken = settings.smsApiKey || process.env.TWILIO_AUTH_TOKEN;
-    const fromPhone = settings.smsPhoneNumber || process.env.TWILIO_PHONE_NUMBER;
-    
-    // Check if all required settings are present
-    if (!accountSid || !authToken || !fromPhone) {
+
+    if (!providerApiKey || !providerSender) {
       return res.status(400).json({ 
         success: false, 
-        message: 'SMS configuration incomplete. Please configure Account SID, Auth Token, and Phone Number in settings, or check environment variables.' 
+        message: 'SMS configuration incomplete. Please configure API Key and Sender in settings, or check environment variables.' 
       });
     }
     
@@ -190,9 +188,9 @@ router.post('/settings/test-sms', smsLimiter, async (req, res) => {
     console.log('📝 Test message content:', testMessage);
     
     const result = await sendSMSWithConfig(phoneNumber, testMessage, {
-      accountSid: accountSid,
-      authToken: authToken,
-      phoneNumber: fromPhone
+      apiKey: providerApiKey,
+      sender: providerSender,
+      apiUrl: process.env.WHATSAPP_API_URL || process.env.SMS_API_URL
     });
     
     console.log('📤 SMS Test Result:', result);
@@ -200,22 +198,18 @@ router.post('/settings/test-sms', smsLimiter, async (req, res) => {
     if (result.success) {
       res.json({ 
         success: true, 
-        message: 'Test SMS sent successfully! Check your phone for the message.', 
+        message: 'Test message sent successfully! Check your phone for the message.', 
         sid: result.sid,
         templateUsed: templateType,
         messagePreview: testMessage.substring(0, 100) + (testMessage.length > 100 ? '...' : '')
       });
     } else {
-      // Handle specific Twilio errors
+      // Handle provider/API errors
       let errorMessage = result.error;
-      if (result.error.includes('not a valid phone number')) {
+      if (result.error.includes('valid phone number')) {
         errorMessage = 'Invalid phone number. Please use a valid phone number in international format.';
-      } else if (result.error.includes('not a mobile number')) {
-        errorMessage = 'This number is not a mobile number. SMS can only be sent to mobile numbers.';
-      } else if (result.error.includes('unverified')) {
-        errorMessage = 'This phone number is not verified with your Twilio account. In trial mode, you can only send SMS to verified numbers.';
-      } else if (result.error.includes('Authentication')) {
-        errorMessage = 'Twilio authentication failed. Please check your Account SID and Auth Token.';
+      } else if (result.error.includes('auth') || result.error.includes('key')) {
+        errorMessage = 'Authentication failed. Please check your API key and sender configuration.';
       }
       
       res.status(400).json({ success: false, message: errorMessage });

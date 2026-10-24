@@ -11,6 +11,11 @@ type Donor = {
   distance?: number; // Add distance property
 };
 
+type HospitalLocation = {
+  lat: number;
+  lng: number;
+};
+
 // Create custom marker icons
 const createCustomIcon = (color: 'green' | 'red') => {
   return L.divIcon({
@@ -67,23 +72,37 @@ const hospitalIcon = L.divIcon({
   popupAnchor: [0, -15]
 });
 
-const charusatCoords: [number, number] = [22.6001, 72.8205]; // Charusat University coordinates
+const defaultHospitalCoords: [number, number] = [22.602556127219323, 72.82048814218332];
 
-export function CharusatMap({ donors = [] }: { donors?: Donor[] }) {
+export function CharusatMap({
+  donors = [],
+  hospitalLocation,
+  hospitalName = 'Hospital'
+}: {
+  donors?: Donor[];
+  hospitalLocation?: HospitalLocation;
+  hospitalName?: string;
+}) {
+  const hospitalCoords: [number, number] = hospitalLocation
+    ? [hospitalLocation.lat, hospitalLocation.lng]
+    : defaultHospitalCoords;
+
   return (
     <div className="rounded-2xl overflow-hidden shadow-lg border border-red-100">
-      <MapContainer center={charusatCoords} zoom={16} style={{ height: '400px', width: '100%' }}>
+      <MapContainer center={hospitalCoords} zoom={16} style={{ height: '400px', width: '100%' }}>
         <TileLayer
             attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         
         {/* Hospital Marker */}
-        <Marker position={charusatCoords as [number, number]} icon={hospitalIcon}>
+        <Marker position={hospitalCoords as [number, number]} icon={hospitalIcon}>
           <Popup>
             <div className="text-center">
-              <strong>Charusat Hospital</strong><br />
-              <span className="text-sm text-gray-600">Hospital Location</span>
+              <strong>{hospitalName}</strong><br />
+              <span className="text-sm text-gray-600">
+                {hospitalCoords[0].toFixed(6)}, {hospitalCoords[1].toFixed(6)}
+              </span>
             </div>
           </Popup>
         </Marker>

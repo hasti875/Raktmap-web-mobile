@@ -9,6 +9,20 @@ const DonorLocationResponse = require('../models/DonorLocationResponse');
 // Import location filter utility
 const { filterRecentLocations, addExpiryInfo } = require('../utils/locationFilter');
 
+// Normalize phone numbers for matching across formats like +91XXXXXXXXXX, 91XXXXXXXXXX, XXXXXXXXXX
+const normalizePhoneForMatch = (phone) => {
+  if (!phone) return '';
+  const digits = String(phone).replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+const isPhoneMatch = (phoneA, phoneB) => {
+  const normalizedA = normalizePhoneForMatch(phoneA);
+  const normalizedB = normalizePhoneForMatch(phoneB);
+  return !!normalizedA && !!normalizedB && normalizedA === normalizedB;
+};
+
 // ADD THIS TEST ENDPOINT AT THE TOP
 router.get('/test', (req, res) => {
   res.json({
@@ -135,10 +149,8 @@ router.get('/available-donors', async (req, res) => {
     const availableDonors = donors.map(donor => {
       // Try to find matching location by multiple criteria for better matching
       const location = locations.find(loc => {
-        // Match by phone number (most reliable)
-        const phoneMatch = loc.mobileNumber === donor.phone ||
-          loc.mobileNumber === donor.phone.replace(/\s+/g, '') ||
-          loc.mobileNumber?.replace(/\s+/g, '') === donor.phone.replace(/\s+/g, '');
+        // Match by normalized phone number (handles +91, 91 and plain 10-digit numbers)
+        const phoneMatch = isPhoneMatch(loc.mobileNumber, donor.phone);
 
         // Match by name (case insensitive, flexible matching)
         const nameMatch = loc.userName && donor.name &&
@@ -152,8 +164,8 @@ router.get('/available-donors', async (req, res) => {
       let detailedStatus = 'not_contacted'; // Default status
 
       if (location && location.latitude && location.longitude) {
-        const hospitalLat = 22.6013;
-        const hospitalLng = 72.8327;
+        const hospitalLat = 22.602556127219323;
+        const hospitalLng = 72.82048814218332;
         distance = calculateDistance(hospitalLat, hospitalLng, location.latitude, location.longitude);
         detailedStatus = 'location_shared';
       }
@@ -182,7 +194,7 @@ router.get('/available-donors', async (req, res) => {
         } : null,
         responseTime: location ? location.timestamp : null,
         hasLocationData: !!location, // Boolean flag for easier filtering
-        matchedBy: location ? (locations.find(l => l.mobileNumber === donor.phone) ? 'phone' : 'name') : null
+        matchedBy: location ? (locations.find(l => isPhoneMatch(l.mobileNumber, donor.phone)) ? 'phone' : 'name') : null
       };
     });
 
@@ -273,14 +285,7 @@ router.get('/locations', async (req, res) => {
       const matchingDonor = donors.find(donor => {
         if (!location.mobileNumber || !donor.phone) return false;
 
-        const cleanLocationPhone = location.mobileNumber.replace(/\D/g, '');
-        const cleanDonorPhone = donor.phone.replace(/\D/g, '');
-
-        const phoneMatch =
-          donor.phone === location.mobileNumber ||
-          cleanDonorPhone === cleanLocationPhone ||
-          cleanDonorPhone === `91${cleanLocationPhone}` ||
-          `91${cleanDonorPhone}` === cleanLocationPhone;
+        const phoneMatch = isPhoneMatch(donor.phone, location.mobileNumber);
 
         console.log(`Checking donor ${donor.name} (${donor.phone}) against location ${location.userName} (${location.mobileNumber})`);
         console.log(`Phone match: ${phoneMatch}`);
@@ -514,8 +519,7 @@ router.get('/responses/:requestId', async (req, res) => {
     const transformedOldLocations = locations.map(location => {
       // Try to match with donor data to get blood group
       const matchingDonor = donors.find(donor => {
-        const phoneMatch = donor.phone === location.mobileNumber ||
-          donor.phone?.replace(/\s+/g, '') === location.mobileNumber?.replace(/\s+/g, '');
+        const phoneMatch = isPhoneMatch(donor.phone, location.mobileNumber);
         const nameMatch = donor.name && location.userName &&
           donor.name.toLowerCase().trim() === location.userName.toLowerCase().trim();
         return phoneMatch || nameMatch;

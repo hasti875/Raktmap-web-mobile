@@ -141,4 +141,56 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// GET /donors/:id/card - Get donor card data (stats for display)
+router.get('/:id/card', async (req, res) => {
+  try {
+    const donor = await Donor.findById(req.params.id, { password: 0 });
+    if (!donor) {
+      return res.status(404).json({ success: false, message: 'Donor not found' });
+    }
+
+    // Calculate points: 100 per donation
+    const points = donor.totalDonations * 100;
+
+    // Determine badge/tier based on donations
+    let badge = 'New Donor';
+    let badgeColor = '#94a3b8'; // gray
+    
+    if (donor.totalDonations === 0) {
+      badge = 'New Donor';
+      badgeColor = '#94a3b8';
+    } else if (donor.totalDonations >= 1 && donor.totalDonations <= 3) {
+      badge = 'Bronze';
+      badgeColor = '#cd7f32';
+    } else if (donor.totalDonations >= 4 && donor.totalDonations <= 9) {
+      badge = 'Silver';
+      badgeColor = '#c0c0c0';
+    } else if (donor.totalDonations >= 10 && donor.totalDonations <= 19) {
+      badge = 'Gold';
+      badgeColor = '#ffd700';
+    } else if (donor.totalDonations >= 20) {
+      badge = 'Platinum';
+      badgeColor = '#e5e4e2';
+    }
+
+    res.json({
+      success: true,
+      card: {
+        donorId: donor.uniqueId || donor._id,
+        name: donor.name,
+        bloodGroup: donor.bloodGroup || 'NK',
+        totalDonations: donor.totalDonations,
+        points: points,
+        lastDonationDate: donor.lastDonationDate,
+        memberSince: donor.createdAt,
+        badge: badge,
+        badgeColor: badgeColor
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching donor card:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch donor card' });
+  }
+});
+
 module.exports = router; 

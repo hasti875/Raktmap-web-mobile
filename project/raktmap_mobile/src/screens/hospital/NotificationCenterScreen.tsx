@@ -1,302 +1,116 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { api } from '../../config/api';
 import { useAuth } from '../../contexts/AuthContext';
 
+const ICON: Record<string, string> = { blood_request: '🩸', donation_confirmed: '✅', urgent_request: '🚨', donation_reminder: '⏰', system: 'ℹ️' };
+
 const NotificationCenterScreen = () => {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [notifs, setNotifs]         = useState<any[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [filter, setFilter]         = useState<'all' | 'unread'>('all');
 
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
+  useEffect(() => { fetchNotifs(); }, []);
 
-  const fetchNotifications = async () => {
+  const fetchNotifs = async () => {
     try {
-      if (!user?._id) {
-        console.log('No user ID available');
-        setNotifications([]);
-        return;
-      }
-      
-      const notifResponse = await api.get(`/notifications/${user._id}`);
-      setNotifications(notifResponse.data.notifications || []);
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-      // Set empty array on error
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      if (!user?._id) { setNotifs([]); return; }
+      const r = await api.get(`/notifications/${user._id}`);
+      setNotifs(r.data.notifications || []);
+    } catch { setNotifs([]); }
+    finally { setLoading(false); setRefreshing(false); }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchNotifications();
+  const markRead = async (id: string) => {
+    try { await api.post(`/notifications/${id}/read`); setNotifs(p => p.map(n => n._id === id ? { ...n, read: true } : n)); } catch {}
   };
 
-  const markAsRead = async (notificationId: string) => {
-    try {
-      await api.post(`/notifications/${notificationId}/read`);
-      setNotifications(
-        notifications.map((n) =>
-          n._id === notificationId ? { ...n, read: true } : n
-        )
-      );
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
+  const markAllRead = async () => {
+    try { if (!user?._id) return; await api.post(`/notifications/${user._id}/read-all`); setNotifs(p => p.map(n => ({ ...n, read: true }))); } catch {}
   };
 
-  const markAllAsRead = async () => {
-    try {
-      if (!user?._id) return;
-      
-      await api.post(`/notifications/${user._id}/read-all`);
-      setNotifications(notifications.map((n) => ({ ...n, read: true })));
-    } catch (error) {
-      console.error('Error marking all as read:', error);
-    }
-  };
+  const displayed = notifs.filter(n => filter === 'all' || !n.read);
+  const unread    = notifs.filter(n => !n.read).length;
 
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'blood_request':
-        return '🩸';
-      case 'donation_confirmed':
-        return '✅';
-      case 'urgent_request':
-        return '🚨';
-      case 'donation_reminder':
-        return '⏰';
-      case 'system':
-        return 'ℹ️';
-      default:
-        return '📬';
-    }
-  };
-
-  const filteredNotifications = notifications.filter(
-    (n) => filter === 'all' || !n.read
-  );
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#DC2626" />
-      </View>
-    );
-  }
+  if (loading) return <View style={s.loading}><ActivityIndicator size="large" color="#C8102E" /></View>;
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.filterContainer}>
-          <TouchableOpacity
-            style={[styles.filterButton, filter === 'all' && styles.filterButtonActive]}
-            onPress={() => setFilter('all')}
-          >
-            <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
-              All ({notifications.length})
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.filterButton, filter === 'unread' && styles.filterButtonActive]}
-            onPress={() => setFilter('unread')}
-          >
-            <Text style={[styles.filterText, filter === 'unread' && styles.filterTextActive]}>
-              Unread ({unreadCount})
-            </Text>
-          </TouchableOpacity>
+    <View style={s.root}>
+      {/* Controls */}
+      <View style={s.controls}>
+        <View style={s.filterRow}>
+          {[['all', `All (${notifs.length})`], ['unread', `Unread (${unread})`]].map(([val, lbl]) => (
+            <TouchableOpacity key={val} style={[s.filterBtn, filter === val && s.filterBtnActive]} onPress={() => setFilter(val as any)}>
+              <Text style={[s.filterTxt, filter === val && s.filterTxtActive]}>{lbl}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-        {unreadCount > 0 && (
-          <TouchableOpacity style={styles.markAllButton} onPress={markAllAsRead}>
-            <Text style={styles.markAllText}>Mark All Read</Text>
+        {unread > 0 && (
+          <TouchableOpacity style={s.markAllBtn} onPress={markAllRead} activeOpacity={0.8}>
+            <Text style={s.markAllTxt}>✓ Mark All Read</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {filteredNotifications.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>🔔</Text>
-            <Text style={styles.emptyStateText}>No notifications</Text>
-            <Text style={styles.emptyStateSubtext}>
-              {filter === 'unread'
-                ? 'All caught up! No unread notifications.'
-                : 'You have no notifications yet.'}
-            </Text>
+      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchNotifs(); }} tintColor="#C8102E" />} showsVerticalScrollIndicator={false}>
+        {displayed.length === 0 ? (
+          <View style={s.empty}>
+            <Text style={s.emptyIcon}>🔔</Text>
+            <Text style={s.emptyTitle}>{filter === 'unread' ? 'All caught up!' : 'No notifications'}</Text>
+            <Text style={s.emptySub}>{filter === 'unread' ? 'No unread notifications.' : 'You have no notifications yet.'}</Text>
           </View>
         ) : (
-          filteredNotifications.map((notification) => (
-            <TouchableOpacity
-              key={notification._id}
-              style={[
-                styles.notificationCard,
-                !notification.read && styles.notificationCardUnread,
-              ]}
-              onPress={() => !notification.read && markAsRead(notification._id)}
-            >
-              <View style={styles.notificationHeader}>
-                <Text style={styles.notificationIcon}>
-                  {getNotificationIcon(notification.type)}
-                </Text>
-                <View style={styles.notificationContent}>
-                  <Text style={styles.notificationTitle}>{notification.title}</Text>
-                  <Text style={styles.notificationMessage}>{notification.message}</Text>
-                  <Text style={styles.notificationTime}>
-                    {new Date(notification.createdAt).toLocaleString()}
-                  </Text>
+          <View style={s.list}>
+            {displayed.map(n => (
+              <TouchableOpacity key={n._id} style={[s.card, !n.read && s.cardUnread]} onPress={() => !n.read && markRead(n._id)} activeOpacity={0.85}>
+                <View style={s.cardInner}>
+                  <Text style={s.notifIcon}>{ICON[n.type] ?? '📬'}</Text>
+                  <View style={s.notifContent}>
+                    <View style={s.notifTitleRow}>
+                      <Text style={s.notifTitle}>{n.title}</Text>
+                      {!n.read && <View style={s.unreadDot} />}
+                    </View>
+                    <Text style={s.notifMsg}>{n.message}</Text>
+                    <Text style={s.notifTime}>{new Date(n.createdAt).toLocaleString()}</Text>
+                  </View>
                 </View>
-                {!notification.read && <View style={styles.unreadDot} />}
-              </View>
-            </TouchableOpacity>
-          ))
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
       </ScrollView>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    padding: 12,
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  filterButton: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-  },
-  filterButtonActive: {
-    backgroundColor: '#DC2626',
-  },
-  filterText: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  filterTextActive: {
-    color: '#fff',
-  },
-  markAllButton: {
-    backgroundColor: '#DBEAFE',
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  markAllText: {
-    fontSize: 14,
-    color: '#1E40AF',
-    fontWeight: '600',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  notificationCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  notificationCardUnread: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FCD34D',
-  },
-  notificationHeader: {
-    flexDirection: 'row',
-    padding: 16,
-    alignItems: 'flex-start',
-  },
-  notificationIcon: {
-    fontSize: 28,
-    marginRight: 12,
-  },
-  notificationContent: {
-    flex: 1,
-  },
-  notificationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  notificationMessage: {
-    fontSize: 14,
-    color: '#4B5563',
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  notificationTime: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#DC2626',
-    marginLeft: 8,
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 48,
-    marginTop: 60,
-  },
-  emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyStateText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
+const s = StyleSheet.create({
+  root:         { flex: 1, backgroundColor: '#F9F5F5' },
+  loading:      { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  controls:     { backgroundColor: '#fff', padding: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  filterRow:    { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  filterBtn:    { flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: '#F3F4F6', alignItems: 'center' },
+  filterBtnActive:{ backgroundColor: '#C8102E' },
+  filterTxt:    { fontSize: 13, color: '#6B7280', fontWeight: '600' },
+  filterTxtActive:{ color: '#fff' },
+  markAllBtn:   { backgroundColor: '#DBEAFE', padding: 11, borderRadius: 10, alignItems: 'center' },
+  markAllTxt:   { fontSize: 14, color: '#1E40AF', fontWeight: '700' },
+  list:         { padding: 12 },
+  card:         { backgroundColor: '#fff', borderRadius: 16, marginBottom: 10, borderWidth: 1, borderColor: '#E5E7EB', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
+  cardUnread:   { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' },
+  cardInner:    { flexDirection: 'row', padding: 14, alignItems: 'flex-start' },
+  notifIcon:    { fontSize: 28, marginRight: 12 },
+  notifContent: { flex: 1 },
+  notifTitleRow:{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  notifTitle:   { fontSize: 15, fontWeight: '700', color: '#1A0A0F', flex: 1 },
+  unreadDot:    { width: 10, height: 10, borderRadius: 5, backgroundColor: '#C8102E', marginLeft: 8 },
+  notifMsg:     { fontSize: 14, color: '#4B5563', lineHeight: 20, marginBottom: 6 },
+  notifTime:    { fontSize: 12, color: '#9CA3AF' },
+  empty:        { alignItems: 'center', paddingVertical: 80 },
+  emptyIcon:    { fontSize: 52, opacity: 0.3, marginBottom: 12 },
+  emptyTitle:   { fontSize: 18, fontWeight: '800', color: '#1A0A0F', marginBottom: 6 },
+  emptySub:     { fontSize: 14, color: '#6B7280', textAlign: 'center' },
 });
 
 export default NotificationCenterScreen;

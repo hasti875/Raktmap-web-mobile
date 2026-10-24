@@ -3,6 +3,8 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const DonationHistory = require('../models/DonationHistory');
 const BloodRequest = require('../models/BloodRequest');
+const Donor = require('../models/Donor');
+const { sendDonationCertificate } = require('../services/emailService');
 
 // Get all donation history records (for frontend display)
 router.get('/donation-history', async (req, res) => {
@@ -271,6 +273,17 @@ router.post('/mark-donation-completed', async (req, res) => {
       // Continue with the flow even if location removal fails
     }
 
+    // Update donor's totalDonations count
+    const donorRecord = await Donor.findById(donorId);
+    if (donorRecord) {
+      donorRecord.totalDonations = (donorRecord.totalDonations || 0) + 1;
+      donorRecord.lastDonationDate = new Date();
+      await donorRecord.save();
+      console.log(`Updated donor ${donorId} donation count to ${donorRecord.totalDonations}`);
+    } else {
+      console.log(`Donor ${donorId} not found for updating donation count`);
+    }
+
     // Update the blood request status to 'fulfilled'
     const bloodRequest = await BloodRequest.findById(requestId);
     if (bloodRequest) {
@@ -279,6 +292,24 @@ router.post('/mark-donation-completed', async (req, res) => {
       console.log(`Updated blood request ${requestId} status to fulfilled`);
     } else {
       console.log(`Blood request ${requestId} not found`);
+    }
+
+    // Send donation certificate to donor's email (non-blocking)
+    if (donorRecord && donorRecord.email) {
+      sendDonationCertificate(
+        donorRecord.email,
+        donation.donorName,
+        donation.completedAt,
+        donation.donorBloodGroup,
+        donorId,
+        1 // units
+      ).then(() => {
+        console.log('✅ Donation certificate sent to:', donorRecord.email);
+      }).catch(certError => {
+        console.error('❌ Error sending certificate (non-critical):', certError.message);
+      });
+    } else {
+      console.log('⚠️ No email found for donor, certificate not sent');
     }
 
     return res.status(201).json({

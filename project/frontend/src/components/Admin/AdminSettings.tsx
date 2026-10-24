@@ -2,6 +2,17 @@ import { useState, useEffect } from 'react';
 import { Key, MessageSquare } from 'lucide-react';
 import axios from '../../utils/axios';
 
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+}
+
+interface MessageState {
+  type: '' | 'success' | 'error';
+  text: string;
+}
+
 interface Settings {
   smsApiKey: string;
   smsAccountSid: string;
@@ -33,7 +44,7 @@ const AdminSettings = () => {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
+  const [message, setMessage] = useState<MessageState>({ type: '', text: '' });
 
   // Load settings on component mount
   useEffect(() => {
@@ -44,7 +55,7 @@ const AdminSettings = () => {
     try {
       setLoading(true);
       console.log('🔧 AdminSettings: Loading settings...');
-      const response = await axios.get('/admin/settings');
+      const response = await axios.get<ApiResponse<Settings>>('/admin/settings');
       console.log('🔧 AdminSettings: Response received:', response.data);
       if (response.data.success) {
         const loadedSettings = response.data.data;
@@ -54,12 +65,13 @@ const AdminSettings = () => {
         
         console.log('✅ AdminSettings: Settings loaded successfully');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ AdminSettings: Error loading settings:', error);
+      const axiosError = axios.isAxiosError(error) ? error : null;
       console.error('❌ Error details:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data
+        status: axiosError?.response?.status,
+        statusText: axiosError?.response?.statusText,
+        data: axiosError?.response?.data
       });
       setMessage({ type: 'error', text: 'Failed to load settings' });
     } finally {
@@ -70,7 +82,7 @@ const AdminSettings = () => {
   const saveSettings = async () => {
     try {
       setSaving(true);
-      const response = await axios.put('/admin/settings', settings);
+      const response = await axios.put<ApiResponse<Settings>>('/admin/settings', settings);
       if (response.data.success) {
         setMessage({ type: 'success', text: 'Settings saved successfully!' });
         setSettings(response.data.data);
@@ -83,7 +95,7 @@ const AdminSettings = () => {
     }
   };
 
-  const handleInputChange = (field: keyof Settings, value: any) => {
+  const handleInputChange = <K extends keyof Settings>(field: K, value: Settings[K]) => {
     setSettings(prev => ({ ...prev, [field]: value }));
     
     // Clear messages when user starts editing

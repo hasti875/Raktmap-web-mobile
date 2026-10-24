@@ -10,39 +10,29 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#DC2626"
+      "backgroundColor": "#C8102E"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.raktmap.blooddonation",
-      "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Raktmap needs your location to find nearby blood donation requests and donors.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Raktmap needs your location to notify you of nearby blood donation emergencies.",
-        "NSCameraUsageDescription": "Raktmap needs camera access to scan QR codes for donation verification.",
-        "NSMicrophoneUsageDescription": "Camera access is required for QR code scanning."
-      }
+      "bundleIdentifier": "com.raktmap.blooddonation"
     },
     "android": {
       "package": "com.raktmap.blooddonation",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#DC2626"
+        "backgroundColor": "#C8102E"
       },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "RECEIVE_BOOT_COMPLETED",
         "VIBRATE"
       ],
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
+      "edgeToEdgeEnabled": false,
       "config": {
         "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+          "apiKey": "YOUR_ACTUAL_GOOGLE_MAPS_KEY" 
         }
       }
     },
@@ -50,30 +40,31 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-barcode-scanner",
+      [
+        "expo-camera",           
+        {
+          "cameraPermission": "Allow Raktmap to access camera for QR scanning."
+        }
+      ],
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Raktmap to use your location to find nearby blood donation requests and notify you of emergencies.",
-          "locationAlwaysPermission": "Allow Raktmap to use your location in the background to notify you of nearby blood donation emergencies.",
-          "locationWhenInUsePermission": "Allow Raktmap to use your location to find nearby blood donation requests."
+          "locationWhenInUsePermission": "Allow Raktmap to use your location to find nearby donors."
         }
       ],
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
-          "color": "#DC2626",
-          "sounds": [
-            "./assets/notification-sound.wav"
-          ]
+          "icon": "./assets/icon.png",  
+          "color": "#C8102E"
+          
         }
       ],
       "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "4606980c-73e9-4cb5-b9cd-71ce761d2c37"
       }
     }
   }

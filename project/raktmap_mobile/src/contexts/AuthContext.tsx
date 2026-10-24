@@ -6,21 +6,19 @@ import { User, UserRole, AuthContextType } from '../types';
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]       = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check if user is already logged in on app start
   useEffect(() => {
     checkAuthStatus();
   }, []);
 
   const checkAuthStatus = async () => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      const role = await AsyncStorage.getItem('userRole') as UserRole | null;
+      const token    = await AsyncStorage.getItem('authToken');
+      const role     = await AsyncStorage.getItem('userRole') as UserRole | null;
       const userData = await AsyncStorage.getItem('userData');
-
       if (token && role && userData) {
         setUser(JSON.parse(userData));
         setUserRole(role);
@@ -40,7 +38,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       console.log('✅ Login successful - Role:', role, 'Name:', name, 'ID:', id, 'WillingToDonate:', willingToDonate);
 
-      // Create user object from login response
       const userData: any = {
         _id: id || '',
         name: name || '',
@@ -48,13 +45,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         phone: phone || '',
         role: role,
         isActive: isActive !== undefined ? isActive : true,
-        isProfileComplete: isProfileComplete || false
+        isProfileComplete: isProfileComplete || false,
       };
 
-      // Add donor-specific fields if user is a donor
       if (role === 'donor' || role === 'user') {
         userData.willingToDonate = willingToDonate || false;
-        userData.bloodGroup = bloodGroup || null;
+        userData.bloodGroup      = bloodGroup || null;
       }
 
       await AsyncStorage.setItem('authToken', token);
@@ -67,9 +63,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('💾 User data saved to storage');
     } catch (error: any) {
       console.error('❌ Login failed:', error.response?.data?.message || error.message);
-
       if (error.message === 'Network Error') {
-        throw new Error('Cannot connect to server. Please check your internet connection and ensure the backend is running.');
+        throw new Error('Cannot connect to server. Please check your internet connection.');
       } else if (error.response?.status === 401) {
         throw new Error('Invalid email or password');
       } else if (error.response?.status === 503) {
@@ -83,31 +78,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (userData: any) => {
     try {
       const { name, email, password, phone, role } = userData;
-
       if (role === 'donor') {
-        // For donors, use the /donors endpoint (admin creates donors)
-        // For now, we'll create a simplified donor registration
-        const donorData = {
-          name,
-          email,
-          phone: phone || '',
-          password,
-          bloodGroup: userData.bloodGroup || 'O+',
-          dateOfBirth: userData.dateOfBirth || new Date('2000-01-01'),
-          gender: userData.gender || 'Male',
-          address: userData.address || '',
-          isAvailable: true
-        };
-
-        // Note: This requires updating backend to support direct donor registration
-        // For now, throw an error to guide users
-        throw new Error('Donor registration requires admin approval. Please contact admin or register as Hospital.');
+        throw new Error('Donor registration requires admin approval. Please contact admin.');
       } else {
-        // Hospital registration - uses OTP verification
         const response = await api.post('/register', { name, email, password });
-
         if (response.data.success) {
-          // Registration initiated - needs OTP verification
           throw new Error('VERIFICATION_REQUIRED:' + email);
         }
       }
@@ -121,7 +96,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userRole');
       await AsyncStorage.removeItem('userData');
-
       setUser(null);
       setUserRole(null);
     } catch (error) {
@@ -132,18 +106,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUser = async (updatedData: Partial<User>) => {
     try {
       if (!user?._id) throw new Error('User ID not found');
-
-      // Use the generic users endpoint which handles all roles
-      const response = await api.put(`/users/${user._id}`, updatedData);
+      const response    = await api.put(`/users/${user._id}`, updatedData);
       const updatedUser = response.data.user || response.data.donor || response.data.hospital;
-
       if (!updatedUser) throw new Error('Updated user data not returned from server');
 
       const newUser = { ...user, ...updatedUser };
       await AsyncStorage.setItem('userData', JSON.stringify(newUser));
       setUser(newUser);
 
-      // Sync userRole if role changed
       if (updatedUser.role && updatedUser.role !== userRole) {
         console.log(`🔄 Role changed from ${userRole} to ${updatedUser.role}`);
         setUserRole(updatedUser.role);
@@ -158,8 +128,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // ✅ NEW — toggle between donor ↔ user without full API update
+  const updateRole = async (newRole: UserRole) => {
+  try {
+    console.log(`🔄 Updating role to: ${newRole}`);
+    setUserRole(newRole);
+    await AsyncStorage.setItem('userRole', newRole);
+
+    // ✅ Also update user object with correct willingToDonate + role
+    if (user) {
+      const updatedUser = {
+        ...user,
+        role: newRole,
+        willingToDonate: newRole === 'donor', // ✅ true if donor, false if user
+        isActive: newRole === 'donor',         // ✅ active only when donor
+      };
+      await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+      setUser(updatedUser);  // ✅ this triggers useEffect in HomeTab to sync toggle
+    }
+
+    console.log(`✅ Role updated to ${newRole}`);
+  } catch (error) {
+    console.error('❌ Failed to update role:', error);
+  }
+};
+
   return (
-    <AuthContext.Provider value={{ user, userRole, isLoading, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{
+      user, userRole, isLoading,
+      login, register, logout, updateUser,
+      updateRole, // ✅ exposed
+    }}>
       {children}
     </AuthContext.Provider>
   );

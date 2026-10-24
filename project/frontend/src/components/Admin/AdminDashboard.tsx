@@ -1,19 +1,69 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Building2, Users, Heart, Activity, TrendingUp, Clock, RefreshCw } from 'lucide-react';
 import { StatsCard } from '../Shared/StatsCard';
 import { Chart } from '../Shared/Chart';
 import axios from '../../utils/axios';
 
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+}
+
+interface DashboardStats {
+  totalHospitals: number;
+  activeDonors: number;
+  bloodRequests: number;
+  responseRate: number;
+}
+
+interface DashboardDonor {
+  bloodGroup?: string;
+}
+
+interface DashboardBloodRequest {
+  status: string;
+  hospitalName?: string;
+  hospitalId?: string;
+  quantity: number;
+  bloodGroup: string;
+  createdAt?: string;
+  requestedAt?: string;
+}
+
+interface RecentActivityItem {
+  id: number;
+  action: string;
+  hospital: string;
+  request: string;
+  time: string;
+}
+
+interface HospitalsResponse {
+  hospitals: unknown[];
+}
+
+interface BloodRequestsResponse {
+  bloodRequests: DashboardBloodRequest[];
+}
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Unknown error';
+};
+
 export function AdminDashboard() {
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<DashboardStats>({
     totalHospitals: 0,
     activeDonors: 0,
     bloodRequests: 0,
     responseRate: 0
   });
-  const [donors, setDonors] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
-  const [bloodRequests, setBloodRequests] = useState<any[]>([]);
+  const [donors, setDonors] = useState<DashboardDonor[]>([]);
+  const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,9 +75,9 @@ export function AdminDashboard() {
       
       // Fetch hospitals, donors, and blood requests in parallel
       const [hospitalsResponse, donorsResponse, bloodRequestsResponse] = await Promise.all([
-        axios.get('/hospitals'),
-        axios.get('/donors'),
-        axios.get('/blood-requests/all')
+        axios.get<ApiResponse<HospitalsResponse>>('/hospitals'),
+        axios.get<DashboardDonor[]>('/donors'),
+        axios.get<BloodRequestsResponse>('/blood-requests/all')
       ]);
 
       const hospitals = hospitalsResponse.data.success ? hospitalsResponse.data.hospitals : [];
@@ -35,10 +85,9 @@ export function AdminDashboard() {
       const bloodRequestsList = bloodRequestsResponse.data.bloodRequests || [];
       
       setDonors(donorsList);
-      setBloodRequests(bloodRequestsList);
       
       // Create recent activity from blood requests (most recent first)
-      const activities = bloodRequestsList.slice(0, 4).map((req: any, index: number) => ({
+      const activities = bloodRequestsList.slice(0, 4).map((req: DashboardBloodRequest, index: number) => ({
         id: index + 1,
         action: `Blood request ${req.status}`,
         hospital: req.hospitalName || `Hospital ID: ${req.hospitalId}`,
@@ -49,7 +98,7 @@ export function AdminDashboard() {
 
       // Calculate response rate from blood requests
       const totalRequests = bloodRequestsList.length;
-      const fulfilledRequests = bloodRequestsList.filter((req: any) => req.status === 'fulfilled').length;
+      const fulfilledRequests = bloodRequestsList.filter((req: DashboardBloodRequest) => req.status === 'fulfilled').length;
       const responseRate = totalRequests > 0 ? Math.round((fulfilledRequests / totalRequests) * 100) : 0;
 
       setStats({
@@ -59,8 +108,8 @@ export function AdminDashboard() {
         responseRate: responseRate
       });
 
-    } catch (err: any) {
-      console.error('Error fetching dashboard stats:', err);
+    } catch (error: unknown) {
+      console.error('Error fetching dashboard stats:', getErrorMessage(error));
       setError('Failed to load dashboard statistics');
     } finally {
       setLoading(false);
@@ -178,7 +227,7 @@ export function AdminDashboard() {
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">{activity.action}</p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {activity.hospital || activity.donor || activity.request}
+                  {activity.hospital || activity.request}
                 </p>
               </div>
               <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">

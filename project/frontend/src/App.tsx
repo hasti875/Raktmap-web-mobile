@@ -36,7 +36,7 @@ const GoodbyeLoader = ({ name }: { name: string }) => (
 );
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   
   // Show loading while authentication is being checked
   if (loading) {
@@ -56,6 +56,27 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   // Only redirect if we're done loading and there's no user
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Check if user role is allowed (only admin and hospital)
+  if (user.role !== 'admin' && user.role !== 'hospital') {
+    // Donor or other unauthorized role trying to access
+    logout();
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        flexDirection: 'column',
+        padding: '20px',
+        textAlign: 'center'
+      }}>
+        <h2 style={{ color: '#DC2626', marginBottom: '10px' }}>Access Denied</h2>
+        <p>Donors cannot access the web application.</p>
+        <p>Please use the RaktMap mobile app.</p>
+      </div>
+    );
   }
   
   return <>{children}</>;

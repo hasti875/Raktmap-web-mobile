@@ -45,7 +45,13 @@ export function NotificationCenter() {
   const fetchNotifications = async () => {
     try {
       setLoading(true); setError(null);
-      const res = await fetch(`http://localhost:5000/notifications/${hospitalId}`);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:5000/notifications/${hospitalId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
       const data = await res.json();
       if (data.success) {
         setHistoricalNotifications(data.notifications.map((n: any) => ({
