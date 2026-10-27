@@ -52,13 +52,14 @@ const sendNextBatch = async (requestId) => {
 
     let smsSuccessCount = 0;
 
-    // Process batch
-    const smsPromises = donors.map(async (donor) => {
+    // Process batch with staggered delay for WhatsApp anti-ban compliance
+    for (let i = 0; i < donors.length; i++) {
+      const donor = donors[i];
       try {
         const donorPhone = donor.phoneNumber || donor["Mobile No"] || donor.phone;
         const donorName = donor["Student Name"] || donor.name || donor._id;
 
-        if (!donorPhone) return;
+        if (!donorPhone) continue;
 
         // Generate tracking token
         const responseToken = Math.random().toString(36).substr(2, 8);
@@ -69,7 +70,7 @@ const sendNextBatch = async (requestId) => {
           donorId: donor._id
         });
 
-        // Prepare SMS content
+        // Prepare SMS/WhatsApp content
         let urgencyText;
         if (request.urgency === 'pregnancy') urgencyText = 'PREGNANCY EMERGENCY - URGENT';
         else if (request.urgency === 'high') urgencyText = 'HIGH PRIORITY - EMERGENCY';
@@ -108,7 +109,7 @@ const sendNextBatch = async (requestId) => {
               hospitalId: hospital._id,
               type: 'info',
               title: 'SMS Sent (Batch)',
-              message: `SMS sent to ${donorName} (${donorPhone})`,
+              message: `WhatsApp message sent to ${donorName} (${donorPhone})`,
               meta: { bloodRequestId: request._id, donorId: donor._id, smsId: smsResult.sid }
             });
             broadcastNotification(notif);
@@ -116,12 +117,16 @@ const sendNextBatch = async (requestId) => {
             console.error('Failed to create notification', e);
           }
         }
+
+        // Add 1.5s delay between messages if more recipients remain (anti-ban practice)
+        if (i < donors.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
       } catch (err) {
         console.error(`Failed to process donor ${donor._id} in batch:`, err);
       }
-    });
+    }
 
-    await Promise.allSettled(smsPromises);
     console.log(`✅ Batch complete. Sent: ${smsSuccessCount}/${donors.length}`);
 
   } catch (error) {

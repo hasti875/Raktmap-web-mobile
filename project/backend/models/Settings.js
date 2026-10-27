@@ -1,18 +1,22 @@
 const mongoose = require('mongoose');
 
 const settingsSchema = new mongoose.Schema({
-  // SMS Configuration
+  // SMS / WhatsApp Gateway Configuration
+  smsGatewayUrl: {
+    type: String,
+    default: process.env.NIRMAAN_GATEWAY_URL || process.env.WHATSAPP_API_URL || 'https://chat.cryptonixtechnology.in'
+  },
   smsApiKey: {
     type: String,
-    default: process.env.WHATSAPP_API_KEY || process.env.SMS_API_KEY || process.env.TWILIO_AUTH_TOKEN || ''
+    default: process.env.NIRMAAN_API_KEY || process.env.WHATSAPP_API_KEY || process.env.SMS_API_KEY || ''
   },
   smsAccountSid: {
     type: String,
-    default: process.env.WHATSAPP_SENDER || process.env.SMS_SENDER || process.env.TWILIO_ACCOUNT_SID || ''
+    default: process.env.NIRMAAN_SESSION_ID || process.env.WHATSAPP_SESSION_ID || process.env.WHATSAPP_SENDER || ''
   },
   smsPhoneNumber: {
     type: String,
-    default: process.env.WHATSAPP_SENDER || process.env.SMS_SENDER || process.env.TWILIO_PHONE_NUMBER || ''
+    default: process.env.WHATSAPP_PHONE_NUMBER || process.env.NIRMAAN_SESSION_ID || process.env.WHATSAPP_SESSION_ID || process.env.WHATSAPP_SENDER || ''
   },
   
   // SMS Templates

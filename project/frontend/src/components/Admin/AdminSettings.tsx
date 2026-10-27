@@ -14,6 +14,7 @@ interface MessageState {
 }
 
 interface Settings {
+  smsGatewayUrl?: string;
   smsApiKey: string;
   smsAccountSid: string;
   smsPhoneNumber: string;
@@ -119,47 +120,53 @@ const AdminSettings = () => {
         <p className="text-gray-600">Configure system preferences and API settings</p>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* API Configuration */}
+        {/* WhatsApp Gateway Configuration */}
         <div className="bg-white rounded-2xl shadow-lg p-6 border border-red-100">
           <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center space-x-2">
             <Key className="h-5 w-5 text-red-600" />
-            <span>API Configuration</span>
+            <span>Nirmaan WhatsApp Gateway</span>
           </h3>
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                SMS Account SID
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Gateway URL
               </label>
+              <p className="text-xs text-gray-500 mb-2">Self-hosted Baileys WhatsApp Gateway endpoint</p>
               <input
                 type="text"
-                value={settings.smsAccountSid}
-                onChange={(e) => handleInputChange('smsAccountSid', e.target.value)}
+                value={settings.smsGatewayUrl || 'https://chat.cryptonixtechnology.in'}
+                onChange={(e) => handleInputChange('smsGatewayUrl' as any, e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200"
-                placeholder="Enter Twilio Account SID..."
+                placeholder="https://chat.cryptonixtechnology.in"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                SMS API Key (Auth Token)
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                WhatsApp Session ID
               </label>
+              <p className="text-xs text-gray-500 mb-2">Session ID from Dashboard → Sessions (e.g. b2vbon or 919909055454)</p>
+              <input
+                type="text"
+                value={settings.smsAccountSid}
+                onChange={(e) => {
+                  handleInputChange('smsAccountSid', e.target.value);
+                  handleInputChange('smsPhoneNumber', e.target.value);
+                }}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200"
+                placeholder="Enter Session ID (e.g. b2vbon or 919909055454)..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Gateway API Key (x-api-key)
+              </label>
+              <p className="text-xs text-gray-500 mb-2">API key copied from Dashboard → Profile / Settings (e.g. wag_...)</p>
               <input
                 type="password"
                 value={settings.smsApiKey}
                 onChange={(e) => handleInputChange('smsApiKey', e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200"
-                placeholder="Enter Twilio Auth Token..."
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                SMS Phone Number
-              </label>
-              <input
-                type="tel"
-                value={settings.smsPhoneNumber}
-                onChange={(e) => handleInputChange('smsPhoneNumber', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200"
-                placeholder="Enter Twilio phone number (e.g., +1234567890)..."
+                placeholder="Enter Nirmaan API Key (wag_...)..."
               />
             </div>
             <div>

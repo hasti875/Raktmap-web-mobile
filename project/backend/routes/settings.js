@@ -22,9 +22,11 @@ router.get('/settings', async (req, res) => {
     // Don't send sensitive API keys in full, just indicate if they exist
     const safeSettings = {
       ...settings.toObject(),
+      smsGatewayUrl: settings.smsGatewayUrl || process.env.NIRMAAN_GATEWAY_URL || process.env.WHATSAPP_API_URL || 'https://chat.cryptonixtechnology.in',
       smsApiKey: settings.smsApiKey ? '••••••••' + settings.smsApiKey.slice(-4) : '',
       emailApiKey: settings.emailApiKey ? '••••••••' + settings.emailApiKey.slice(-4) : '',
-      smsAccountSid: settings.smsAccountSid ? settings.smsAccountSid.slice(0, 8) + '••••••••' : '',
+      smsAccountSid: settings.smsAccountSid || '',
+      smsPhoneNumber: settings.smsPhoneNumber || '',
       // Include full values for templates and preferences
       smsTemplateHighPriority: settings.smsTemplateHighPriority,
       smsTemplateNormalPriority: settings.smsTemplateNormalPriority,
@@ -115,9 +117,9 @@ router.get('/settings/debug', async (req, res) => {
         authTokenLength: settings.smsApiKey?.length || 0,
         phoneNumberValue: settings.smsPhoneNumber,
         envFallback: {
-          accountSid: process.env.TWILIO_ACCOUNT_SID?.substring(0, 8) + '...',
-          authToken: process.env.TWILIO_AUTH_TOKEN?.substring(0, 8) + '...',
-          phoneNumber: process.env.TWILIO_PHONE_NUMBER
+          gatewayUrl: process.env.NIRMAAN_GATEWAY_URL || process.env.WHATSAPP_API_URL || 'https://chat.cryptonixtechnology.in',
+          sessionId: process.env.NIRMAAN_SESSION_ID || process.env.WHATSAPP_SESSION_ID || process.env.WHATSAPP_SENDER,
+          hasApiKey: !!(process.env.NIRMAAN_API_KEY || process.env.WHATSAPP_API_KEY)
         }
       }
     });
@@ -148,28 +150,26 @@ router.post('/settings/test-sms', smsLimiter, async (req, res) => {
     }
     
     const settings = await Settings.getSettings();
-    const providerApiKey = process.env.WHATSAPP_API_KEY || settings.smsApiKey || process.env.SMS_API_KEY || process.env.TWILIO_AUTH_TOKEN;
-    const providerSenderRaw = process.env.WHATSAPP_SENDER || settings.smsPhoneNumber || process.env.SMS_SENDER || settings.smsAccountSid || process.env.TWILIO_PHONE_NUMBER;
-    const providerSender = providerSenderRaw
-      ? providerSenderRaw.toString().trim().replace(/[^\d+]/g, '').replace(/^\+/, '')
-      : '';
+    const gatewayUrl = process.env.NIRMAAN_GATEWAY_URL || process.env.WHATSAPP_API_URL || settings.smsGatewayUrl || 'https://chat.cryptonixtechnology.in';
+    const providerApiKey = process.env.NIRMAAN_API_KEY || process.env.WHATSAPP_API_KEY || settings.smsApiKey || process.env.SMS_API_KEY;
+    const providerSender = process.env.NIRMAAN_SESSION_ID || process.env.WHATSAPP_SESSION_ID || process.env.WHATSAPP_SENDER || settings.smsAccountSid || settings.smsPhoneNumber;
 
-    console.log('📋 Retrieved settings for SMS test:', {
+    console.log('📋 Retrieved settings for SMS/WhatsApp test:', {
       hasApiKey: !!providerApiKey,
       hasSender: !!providerSender,
       apiKeyLength: providerApiKey?.length || 0,
-      sender: providerSender
+      sessionId: providerSender
     });
 
     if (!providerApiKey || !providerSender) {
       return res.status(400).json({ 
         success: false, 
-        message: 'SMS configuration incomplete. Please configure API Key and Sender in settings, or check environment variables.' 
+        message: 'WhatsApp Gateway configuration incomplete. Please configure API Key (x-api-key) and Session ID in settings or .env.' 
       });
     }
     
     // Import SMS service
-    const { sendSMSWithConfig, getSMSTemplate, formatSMSMessage } = require('../services/smsService');
+    const { sendSMSWithConfig, formatSMSMessage } = require('../services/smsService');
     
     // Get the appropriate template
     const template = templateType === 'high' ? settings.smsTemplateHighPriority : settings.smsTemplateNormalPriority;
@@ -188,35 +188,35 @@ router.post('/settings/test-sms', smsLimiter, async (req, res) => {
     console.log('📝 Test message content:', testMessage);
     
     const result = await sendSMSWithConfig(phoneNumber, testMessage, {
+      gatewayUrl,
       apiKey: providerApiKey,
-      sender: providerSender,
-      apiUrl: process.env.WHATSAPP_API_URL || process.env.SMS_API_URL
+      sessionId: providerSender,
     });
     
-    console.log('📤 SMS Test Result:', result);
+    console.log('📤 Test Message Result:', result);
     
     if (result.success) {
       res.json({ 
         success: true, 
-        message: 'Test message sent successfully! Check your phone for the message.', 
+        message: 'WhatsApp message sent successfully via Nirmaan Gateway!', 
         sid: result.sid,
         templateUsed: templateType,
         messagePreview: testMessage.substring(0, 100) + (testMessage.length > 100 ? '...' : '')
       });
     } else {
       // Handle provider/API errors
-      let errorMessage = result.error;
-      if (result.error.includes('valid phone number')) {
-        errorMessage = 'Invalid phone number. Please use a valid phone number in international format.';
-      } else if (result.error.includes('auth') || result.error.includes('key')) {
-        errorMessage = 'Authentication failed. Please check your API key and sender configuration.';
+      let errorMessage = result.error || 'Failed to send message';
+      if (typeof errorMessage === 'string' && (errorMessage.includes('auth') || errorMessage.includes('Unauthorized') || errorMessage.includes('key'))) {
+        errorMessage = 'Authentication failed. Please verify your x-api-key from Nirmaan Gateway dashboard.';
+      } else if (typeof errorMessage === 'string' && errorMessage.includes('disconnected')) {
+        errorMessage = 'WhatsApp session is disconnected or not found. Please verify the Session ID and ensure the QR code is scanned in Nirmaan Gateway.';
       }
       
       res.status(400).json({ success: false, message: errorMessage });
     }
   } catch (error) {
-    console.error('❌ Error testing SMS:', error);
-    res.status(500).json({ success: false, message: 'Failed to test SMS configuration: ' + error.message });
+    console.error('❌ Error testing SMS/WhatsApp:', error);
+    res.status(500).json({ success: false, message: 'Failed to test WhatsApp configuration: ' + error.message });
   }
 });
 
